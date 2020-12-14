@@ -34,21 +34,48 @@ function handleStart(request, response) {
 }
 
 function handleMove(request, response) {
-  var gameData = request.body
-  console.log(gameData)
+  var gameData = request.body;
+  console.log(gameData);
 
-  var possibleMoves = ['up', 'down', 'left', 'right']
-  var move = possibleMoves[Math.floor(Math.random() * possibleMoves.length)]
+  const head = gameData.you.head; // example return: { x: 10, y: 1 }
+  const neck = gameData.you.body[1];
 
-  console.log('MOVE: ' + move)
-  response.status(200).send({
-    move: move
-  })
+  var possibleMoves = ['up', 'left', 'down', 'right']
+  for (const m of possibleMoves) {
+    const coord = moveAsCoord(m, head);
+    if (!offBoard(gameData, coord) && !coordEqual(coord, neck)) {
+        console.log('MOVE: ' + m)
+        response.status(200).send({move: m})
+    }
+  }
+}
+
+function moveAsCoord(move, head) {
+  switch (move) {
+    case 'up':
+      return {x: head.x, y: head.y+1};
+    case 'down':
+      return {x: head.x, y: head.y-1};
+    case 'left':
+      return {x: head.x-1, y: head.y};
+    case 'right':
+      return {x: head.x+1, y: head.y};
+  }
+}
+
+function offBoard(gameData, coord) {
+  if (coord.x < 0) return true;
+  if (coord.y < 0) return true;
+  if (coord.y >= gameData.board.height) return true;
+  if (coord.x >= gameData.board.height) return true;
+  return false; // If it makes it here we are ok.
+}
+
+function coordEqual(a, b) {
+  return a.x === b.x && a.y === b.y;
 }
 
 function handleEnd(request, response) {
-  var gameData = request.body
-
   console.log('END')
   response.status(200).send('ok')
 }
