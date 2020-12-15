@@ -1,0 +1,5 @@
+applications:
+- memory: 64M
+  instances: 1
+  name: battlesnake-nodejs
+  random-route: true
