@@ -7,7 +7,7 @@ This repo contains instructions on how to deploy your Battlesnake to IBM Cloud.
 ## Prerequisites
 
 * [Battlesnake Account](https://play.battlesnake.com)
-* [IBM Cloud Account](http://cloud.ibm.com/registration)
+* [IBM Cloud Account](http://ibm.biz/battlesnakereg)
 * [GitHub Account](https://github.com) (Optional)
 
 ## Running Your Battlesnake on [IBM Cloud](http://cloud.ibm.com)
