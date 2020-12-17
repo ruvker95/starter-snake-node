@@ -1,52 +1,107 @@
-# A Simple [Battlesnake](http://play.battlesnake.com) Written in JavaScript for Node.js
+# Instructions for deploying a [Battlesnake](http://play.battlesnake.com) on IBM Cloud
 
-> Credit to https://colinjfw.github.io/battlesnake-learn/ for the basis of a functioning snake
+> Credit goes to the [Node.js Starter Battlesnake](https://github.com/BattlesnakeOfficial/starter-snake-node) for instructions on how to register your battlesnake. And to [Colin Walker](https://github.com/colinjfw) for his tutorial <https://colinjfw.github.io/battlesnake-learn/> that extended the starter BattleSnake.
 
-This is a basic implementation of the [Battlesnake API](https://docs.battlesnake.com/references/api). It's a great starting point for anyone wanting to program their first Battlesnake using JavaScript. It comes ready to use with [Repl.it](https://repl.it) and provides instructions below for getting started. It can also be deployed to [Heroku](https://heroku.com), or any other cloud provider you'd like.
-
-### Technologies
-
-* [JavaScript](https://www.javascript.com/)
-* [Node.js](https://nodejs.dev/)
-* [Express](https://expressjs.com/)
-
-
+This repo contains instructions on how to deploy your Battlesnake to IBM Cloud.
 
 ## Prerequisites
 
 * [Battlesnake Account](https://play.battlesnake.com)
-* [Repl.it Account](https://repl.it)
+* [IBM Cloud Account](http://cloud.ibm.com/registration)
 * [GitHub Account](https://github.com) (Optional)
 
+## Running Your Battlesnake on [IBM Cloud](http://cloud.ibm.com)
 
+1. Login to your [IBM Cloud](http://cloud.ibm.com/) account.
 
-## Running Your Battlesnake on [Repl.it](https://repl.it)
+2. Launch the _IBM Cloud Shell_, which is available by clicking on the terminal icon on the top right.
 
-[![Run on Repl.it](https://repl.it/badge/github/BattlesnakeOfficial/starter-snake-node)](https://repl.it/github/BattlesnakeOfficial/starter-snake-node)
+   ![1-launch-shell](images/1-launch-shell.png)
 
-1. Login to your [Repl.it](https://repl.it) account.
+3. Once loaded, you'll be presented with an embedded web terminal that has the `ibmcloud` CLI and other tools available.
 
-2. Click the 'Run on Repl.it' button above, or visit the following URL: https://repl.it/github/BattlesnakeOfficial/starter-snake-node.
+   ![2-cloud-shell](images/2-cloud-shell.png)
 
-3. You should see your Repl being initialized - this might take a few moments to complete.
+4. Clone this repo so we have the source code we want to deploy. Copy the following command into the terminal
 
-4. Once your Repl is ready to run, click `Run ▶️` at the top of the screen. You should see Express (and any other dependencies) being installed. Once installation is complete, your Battlesnake server will start and you should see the following:
+   ```bash
+   git clone https://github.com/IBM/starter-snake-node
+   ```
 
-    ```
-    Battlesnake Server listening at http://127.0.0.1:3000
-    ```
+   and navigate into the directory of the cloned repository
 
-5. Above the terminal window you'll see the live output from your Battlesnake server, including its URL. That URL will be the URL used to create your Battlesnake in the next step. If you visit that URL in your browser, you should see text similar to this:
+   ```bash
+   cd starter-snake-node
+   ```
 
-    ```
-    {"apiversion": "1", "author": "", "color": "#888888", "head": "default", "tail": "default"}
-    ```
+5. To deploy the application with Cloud Foundry we first we need to target a Cloud Foundry API endpoint. To do this, run the following interactive command.
 
-This means your Battlesnake is running correctly on Repl.it.
+   ```bash
+   ibmcloud target --cf
+   ```
+
+   You should see output like the example below:
+
+   ```bash
+   $ ibmcloud target --cf
+   Targeted Cloud Foundry (https://api.us-south.cf.cloud.ibm.com)
+
+   Targeted org stevemar@ibm.com
+
+   Targeted space dev
+
+   API endpoint:      https://cloud.ibm.com
+   Region:            us-south
+   User:              stevemar@ibm.com
+   Account:           Steve Martinelli Account
+   Resource group:    default
+   CF API endpoint:   https://api.us-south.cf.cloud.ibm.com (API version: 2.152.0)
+   Org:               stevemar@ibm.com
+   Space:             dev
+   ```
+
+6. We can now deploy our application with `cf push`.
+
+   ```bash
+   ibmcloud cf push
+   ```
+
+   You should see output like the example below:
+
+   ```bash
+   $ ibmcloud cf push
+   Invoking 'cf push'...
+
+   Using manifest file /home/stevemar/node-hello-world/manifest.yml
+   ...
+   Creating app starter-snake-node...
+   ...
+   name:              starter-snake-node
+   requested state:   started
+   routes:            starter-snake-node-surprised-kudu-ec.mybluemix.net
+   last uploaded:     Mon 14 Sep 13:46:54 UTC 2020
+   stack:             cflinuxfs3
+   buildpacks:        sdk-for-nodejs
+   type:            web
+   instances:       1/1
+   memory usage:    64M
+   ```
+
+7. To access the application navigate to the URL that is show in the `routes` value, in the example above it is:
+
+   ```ini
+   https://starter-snake-node-surprised-kudu-ec.mybluemix.net
+   ```
+
+   If all goes well - you should see text similar to this:
+
+   ```json
+   {"apiversion":"1","author":"stevemar","color":"#00ff00","head":"default","tail":"default"}
+   ```
+
+   This means your Battlesnake is running correctly on IBM Cloud.
 
 **At this point your Battlesnake is live and ready to enter games!**
-
-
 
 ## Registering Your Battlesnake and Creating Your First Game
 
@@ -56,116 +111,10 @@ This means your Battlesnake is running correctly on Repl.it.
 
 3. Once your Battlesnake has been saved you can [create a new game](https://play.battlesnake.com/account/games/create/) and add your Battlesnake to it. Type your Battlesnake's name into the search field and click "Add" to add it to the game. Then click "Create Game" to start the game.
 
-4. You should see a brand new Battlesnake game with your Battlesnake in it! Yay! Press "Play" to start the game and watch how your Battlesnake behaves. By default your Battlesnake should move randomly around the board.
+4. You should see a brand new Battlesnake game with your Battlesnake in it! Yay! Press "Play" to start the game and watch how your Battlesnake behaves.
 
-5. Optionally, watch your Repl logs while the game is running to see your Battlesnake receiving API calls and responding with its moves.
-
-Repeat steps 3 and 4 every time you want to see how your Battlesnake behaves. It's common for Battlesnake developers to repeat these steps often as they make their Battlesnake smarter. You can also use the "Create Rematch" button to quickly start a new game using the same Battlesnakes and configuration.
+5. Feel free to fork this repo and repeat the steps from the above section to point to your own repository instead of this one.
 
 **At this point you should have a registered Battlesnake and be able to create games!**
 
-
-
-## Customizing Your Battlesnake
-
-Now you're ready to start customizing your Battlesnake's appearance and behavior.
-
-### Changing Appearance
-
-Locate the `handleIndex` function inside [index.js](index.js#L17). You should see a line that looks like this:
-
-```javascript
-var battlesnakeInfo = {
-  apiversion: '1',
-  author: '',
-  color: '#888888',
-  head: 'default',
-  tail: 'default'
-}
-```
-
-This function is called by the game engine periodically to make sure your Battlesnake is healthy, responding correctly, and to determine how your Battlesnake will appear on the game board. See [Battlesnake Personalization](https://docs.battlesnake.com/references/personalization) for how to customize your Battlesnake's appearance using these values.
-
-Whenever you update these values, go to the page for your Battlesnake and select 'Refresh Metadata' from the option menu. This will update your Battlesnake to use your latest configuration and those changes should be reflected in the UI as well as any new games created.
-
-### Changing Behavior
-
-On every turn of each game your Battlesnake receives information about the game board and must decide its next move.
-
-Locate the `handleMove` function inside [index.js](index.js#L35). Possible moves are "up", "down", "left", or "right". To start your Battlesnake will choose a move randomly. Your goal as a developer is to read information sent to you about the board (available in the `gameData` variable) and decide where your Battlesnake should move next.
-
-See the [Battlesnake Game Rules](https://docs.battlesnake.com/references/rules) for more information on playing the game, moving around the board, and improving your algorithm.
-
-### Updating Your Battlesnake
-
-After making changes to your Battlesnake, you can restart your Repl to have the change take effect (or in many cases your Repl will restart automatically).
-
-Once the Repl has restarted you can [create a new game](https://play.battlesnake.com/account/games/create/) with your Battlesnake to watch your latest changes in action.
-
-**At this point you should feel comfortable making changes to your code and starting new Battlesnake games to test those changes!**
-
-
-
-## Developing Your Battlesnake Further
-
-Now you have everything you need to start making your Battlesnake super smart!
-
-### Early Development Goals
-
-Here are some simple goals to help you develop your Battlesnake early on. Completing these will make your Battlesnake competitive against other Battlesnakes in multi-player games.
-
-- [ ] Avoid colliding with walls
-- [ ] Avoid colliding with yourself
-- [ ] Try to move towards food
-- [ ] Avoid colliding with other snakes
-
-Once you have completed these steps you'll be ready to compete live against other Battlesnakes and start exploring and implementing more complex strategies.
-
-
-### Helpful Tips
-
-* Keeping your Repl open in a second window while games are running is helpful for watching server activity and debugging any problems with your Battlesnake.
-
-* You can use the JavaScript [console.log function](https://developer.mozilla.org/en-US/docs/Web/API/Console/log) to output information to your server logs. This is very useful for debugging logic in your code during Battlesnake games.
-
-* Review the [Battlesnake API Docs](https://docs.battlesnake.com/references/api) to learn what information is provided with each command.
-
-* When viewing a Battlesnake game you can pause playback and step forward/backward one frame at a time. If you review your logs at the same time, you can see what decision your Battlesnake made on each turn.
-
-
-
-## Joining a Battlesnake Arena
-
-Once you've made your Battlesnake behave and survive on its own, you can enter it into the [Global Battlesnake Arena](https://play.battlesnake.com/arena/global) to see how it performs against other Battlesnakes worldwide.
-
-Arenas will regularly create new games and rank Battlesnakes based on their results. They're a good way to get regular feedback on how well your Battlesnake is performing, and a fun way to track your progress as you develop your algorithm.
-
-
-
-## (Optional) Using a Cloud Provider
-
-As your Battlesnake gets more complex, it might make sense to move it to a dedicated hosting provider such as Heroku or AWS. We suggest choosing a platform you're familiar with, or one you'd be interested in learning more about.
-
-If you have questions or ideas, our developer community on [Slack](https://play.battlesnake.com/slack) and [Discord](https://play.battlesnake.com/discord) will be able to help out.
-
-
-
-## (Optional) Running Your Battlesnake Locally
-
-Eventually you might want to run your Battlesnake server locally for faster testing and debugging. You can do this by installing [Node.js](https://nodejs.org/en/download/) and running:
-
-```shell
-npm start
-```
-
-**Note:** You cannot create games on [play.battlesnake.com](https://play.battlesnake.com) using a locally running Battlesnake unless you install and use a port forwarding tool like [ngrok](https://ngrok.com/).
-
-
----
-
-
-### Questions?
-
-All documentation is available at [docs.battlesnake.com](https://docs.battlesnake.com), including detailed Guides, API References, and Tips.
-
-You can also join the Battlesnake Developer Community on [Slack](https://play.battlesnake.com/slack) and [Discord](https://play.battlesnake.com/discord). We have a growing community of Battlesnake developers of all skill levels wanting to help everyone succeed and have fun with Battlesnake :)
+For more information check out the [Node.js Starter Battlesnake](https://github.com/BattlesnakeOfficial/starter-snake-node).
