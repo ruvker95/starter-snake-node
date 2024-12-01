@@ -55,8 +55,22 @@ function handleMove(request, response) {
   }
   if (!target) {
     // Default to a safe move if no target
-    response.status(200).send({ move: possibleMoves[0] });
-    return;
+    /** Add check here to make sure you stay on board */
+    for(const egg of possibleMoves) {
+      const nextCoord = moveAsCoord(move, myHead);
+      if(!offBoard(board, nextCoord)) {
+        /** Doesn't take snake off board, does this move cause our snake to run into itself? */
+        if(snakeHitSelfQuestionMark(mySnake, nextCoord)) {
+          // Do nothing
+        }
+        else {
+          response.status(200).send({ move: egg });
+          return;
+        }
+      }
+    }
+    // response.status(200).send({ move: possibleMoves[0] });
+    // return;
   }
   // Choose the best move towards the target
   let bestMove = null;
@@ -70,12 +84,14 @@ function handleMove(request, response) {
       bestMove = move;
     }
   }
+
   if (bestMove) {
     console.log('MOVE:', bestMove);
     response.status(200).send({ move: bestMove });
   } else {
-    // No safe moves
-    console.log('MOVE: down (default)');
+    /** If we determine there are no safe moves, we still don't want to go off board, so add some checks here */
+    console.log('No best move found, still need to make a move that does not take us off map');
+    // let secondBestMove = null;
     response.status(200).send({ move: 'down' });
   }
 }
@@ -87,15 +103,32 @@ function moveAsCoord(move, head) {
     case 'right': return { x: head.x + 1, y: head.y };
   }
 }
+
+/**
+ * 
+ * @param {*} board 
+ * @param {*} coord 
+ * @returns 
+ */
 function offBoard(board, coord) {
-  return coord.x <= 0 || coord.y <= 0 || coord.x >= board.width || coord.y >= board.height;
+  return coord.x < 0 || coord.y < 0 || coord.x >= board.width || coord.y >= board.height;
 }
+
+/**
+ * Determine whether junk is safe
+ * @param {} board 
+ * @param {*} mySnake 
+ * @param {*} coord 
+ * @returns 
+ */
 function isSafe(board, mySnake, coord) {
   // Avoid walls
-  if (offBoard(board, coord)) return false;
-  // Avoid self
-  for (const segment of mySnake.body) {
-    if (coordEqual(coord, segment)) return false;
+  if (offBoard(board, coord)) {
+    return false;
+  } 
+  /** stop hitting urself */
+  if(snakeHitSelfQuestionMark(mySnake, coord)) {
+    return false;
   }
   // Avoid other snakes
   for (const snake of board.snakes) {
@@ -105,12 +138,39 @@ function isSafe(board, mySnake, coord) {
   }
   return true;
 }
+/**
+ * Checks whether two coordinates are equal
+ * @param {Number} a 
+ * @param {Number} b 
+ * @returns boolean
+ */
 function coordEqual(a, b) {
   return a.x === b.x && a.y === b.y;
 }
+
+/**
+ * Finds the 
+ * @param {*} a 
+ * @param {*} b 
+ * @returns dum
+ */
 function distance(a, b) {
   return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
 }
+
+/**
+ * Does the snek hit itself? if it does, don't
+ */
+function snakeHitSelfQuestionMark(mySnake, coord) {
+    // Avoid self
+    for (const segment of mySnake.body) {
+      if (coordEqual(coord, segment))  {
+        return true;
+    }
+    return false;
+  }
+}
+
 function handleEnd(request, response) {
   console.log('END');
   response.status(200).send('ok');
