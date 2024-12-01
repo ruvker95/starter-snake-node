@@ -88,7 +88,7 @@ function moveAsCoord(move, head) {
   }
 }
 function offBoard(board, coord) {
-  return coord.x < 0 || coord.y < 0 || coord.x >= board.width || coord.y >= board.height;
+  return coord.x <= 0 || coord.y <= 0 || coord.x >= board.width || coord.y >= board.height;
 }
 function isSafe(board, mySnake, coord) {
   // Avoid walls
