@@ -91,10 +91,28 @@ function handleMove(request, response) {
   } else {
     /** If we determine there are no safe moves, we still don't want to go off board, so add some checks here */
     console.log('No best move found, still need to make a move that does not take us off map');
-    // let secondBestMove = null;
-    response.status(200).send({ move: 'down' });
+    for(const secondBestMove of possibleMoves) {
+      const nextCoord = moveAsCoord(move, myHead);
+      if(!offBoard(board, nextCoord)) {
+        /** Doesn't take snake off board, does this move cause our snake to run into itself? */
+        if(snakeHitSelfQuestionMark(mySnake, nextCoord)) {
+          // Do nothing
+        }
+        else {
+          response.status(200).send({ move: secondBestMove });
+          return;
+        }
+      }
+    }
   }
 }
+
+/**
+ * Predetermine where this move will take is (ie the coordinates after the move as been applied)
+ * @param {*} move the move we are checking
+ * @param {*} head head of the snake 
+ * @returns 
+ */
 function moveAsCoord(move, head) {
   switch (move) {
     case 'up': return { x: head.x, y: head.y + 1 };
@@ -138,6 +156,7 @@ function isSafe(board, mySnake, coord) {
   }
   return true;
 }
+
 /**
  * Checks whether two coordinates are equal
  * @param {Number} a 
@@ -171,6 +190,11 @@ function snakeHitSelfQuestionMark(mySnake, coord) {
   }
 }
 
+/**
+ * 
+ * @param {*} request 
+ * @param {*} response 
+ */
 function handleEnd(request, response) {
   console.log('END');
   response.status(200).send('ok');
