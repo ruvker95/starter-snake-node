@@ -14,7 +14,7 @@ function handleIndex(request, response) {
     author: 'stevemar',
     color: '#8B0000', // Dark red
     head: 'fang',     // Aggressive head
-    tail: 'curled'    // Funny tail
+    tail: 'ice-skate'    // Funny tail
   };
   response.status(200).json(battlesnakeInfo);
 }
