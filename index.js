@@ -11,24 +11,60 @@ app.listen(PORT, () => console.log(`Battlesnake Server listening at http://127.0
 function handleIndex(request, response) {
   const battlesnakeInfo = {
     apiversion: '1',
-    author: 'stevemar',
-    color: '#8B0000', // Dark red
-    head: 'fang',     // Aggressive head
-    tail: 'ice-skate'    // Funny tail
+    author: 'ruvimandaddision',
+    color: '#F6DCBD', // Dark red
+    head: 'sand-worm',     // Aggressive head
+    tail: 'fat-rattle'    // Funny tail
   };
   response.status(200).json(battlesnakeInfo);
 }
+
+/**
+ * 
+ * @param {*} request 
+ * @param {*} response 
+ */
 function handleStart(request, response) {
   console.log('START');
   response.status(200).send('ok');
 }
+
+/**
+ * do the thing
+ * @param {*} request 
+ * @param {*} response 
+ * @returns 
+ */
 function handleMove(request, response) {
+  /** Optional: Have different states the snack will go into based
+   * on current server situation.
+   * Example: "scared", "hungry", and "wimpy".
+   * 
+   */
   const gameData = request.body;
   const mySnake = gameData.you;
   const myHead = mySnake.head;
   const myLength = mySnake.length;
   const board = gameData.board;
   const possibleMoves = ['up', 'down', 'left', 'right'];
+  const possibleSnakeStates = ['angery', 'mad', 'hungry', 'baby', 'stinky'];
+  const currentSnakeState= null;
+
+  // Determine snake state, write functions for this
+  // function determineState
+  /**
+   * if(state = 'hungry') {
+   * 
+   * function execute hungry strat() {
+   * 
+   * Determine moves, send to server
+   * 
+   * }
+   * else if (state = 'sad') {
+   * 
+   *  }
+   */
+
   // Determine the closest smaller snake
   let targetSnake = null;
   for (const snake of board.snakes) {
@@ -39,6 +75,7 @@ function handleMove(request, response) {
       }
     }
   }
+
   // Determine the closest food
   let targetFood = null;
   for (const food of board.food) {
@@ -69,9 +106,8 @@ function handleMove(request, response) {
         }
       }
     }
-    // response.status(200).send({ move: possibleMoves[0] });
-    // return;
   }
+
   // Choose the best move towards the target
   let bestMove = null;
   let shortestDistance = Infinity;
