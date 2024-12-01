@@ -32,6 +32,7 @@ function handleMove(request, response) {
   // Determine the closest smaller snake
   let targetSnake = null;
   for (const snake of board.snakes) {
+    console.log("Checking snake" + snake.id)
     if (snake.id !== mySnake.id && snake.length < myLength) {
       if (!targetSnake || distance(myHead, snake.head) < distance(myHead, targetSnake.head)) {
         targetSnake = snake;
