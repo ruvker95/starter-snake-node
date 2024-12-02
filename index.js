@@ -34,53 +34,39 @@ function handleMove(request, response) {
   const board = gameData.board;
   const possibleMoves = ['up', 'down', 'left', 'right'];
 
-  // Determine the closest food
-  let targetFood = null;
-  for (const food of board.food) {
-    if (!targetFood || distance(myHead, food) < distance(myHead, targetFood)) {
-      targetFood = food;
-    }
-  }
-
   // Avoid moves that are unsafe
   const safeMoves = possibleMoves.filter(move => {
     const nextCoord = moveAsCoord(move, myHead);
     return isSafe(board, mySnake, nextCoord);
   });
 
-  let preferredMove = null;
+  // Evaluate spaces to find the best open area
+  let bestMove = null;
+  let largestSpace = 0;
 
-  if (targetFood) {
-    // Prioritize moving toward food
-    let shortestDistance = Infinity;
-    for (const move of safeMoves) {
-      const nextCoord = moveAsCoord(move, myHead);
-      const dist = distance(nextCoord, targetFood);
-      if (dist < shortestDistance) {
-        shortestDistance = dist;
-        preferredMove = move;
-      }
+  for (const move of safeMoves) {
+    const nextCoord = moveAsCoord(move, myHead);
+    const space = calculateOpenSpace(board, nextCoord, mySnake);
+
+    if (space > largestSpace) {
+      largestSpace = space;
+      bestMove = move;
     }
   }
 
-  // If no targetFood or no safe move toward food, avoid walls
-  if (!preferredMove) {
-    for (const move of safeMoves) {
-      const nextCoord = moveAsCoord(move, myHead);
-      if (!offBoard(board, nextCoord)) {
-        preferredMove = move;
-        break;
-      }
-    }
+  // If there’s an opportunity to trap the enemy snake, prioritize that
+  const trapMove = tryToTrapEnemy(board, mySnake);
+  if (trapMove) {
+    bestMove = trapMove;
   }
 
-  // Default move if no safe moves are found
-  if (!preferredMove) {
-    preferredMove = safeMoves.length > 0 ? safeMoves[0] : 'up';
+  // Default to a safe move if no open window or trap move is found
+  if (!bestMove) {
+    bestMove = safeMoves.length > 0 ? safeMoves[0] : 'up';
   }
 
-  console.log('MOVE:', preferredMove);
-  response.status(200).send({ move: preferredMove });
+  console.log('MOVE:', bestMove);
+  response.status(200).send({ move: bestMove });
 }
 
 function handleEnd(request, response) {
@@ -103,16 +89,15 @@ function offBoard(board, coord) {
 }
 
 function isSafe(board, mySnake, coord) {
-  // Avoid walls
-  if (offBoard(board, coord)) {
-    return false;
-  }
+  if (offBoard(board, coord)) return false;
+
   // Avoid collisions with self
   for (const segment of mySnake.body) {
     if (coordEqual(coord, segment)) {
       return false;
     }
   }
+
   // Avoid collisions with other snakes
   for (const snake of board.snakes) {
     for (const segment of snake.body) {
@@ -128,4 +113,54 @@ function coordEqual(a, b) {
 
 function distance(a, b) {
   return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+}
+
+// Calculate the size of the open space from a given coordinate
+function calculateOpenSpace(board, coord, mySnake) {
+  const visited = new Set();
+  let queue = [coord];
+  let space = 0;
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    const key = `${current.x},${current.y}`;
+
+    if (visited.has(key) || offBoard(board, current)) {
+      continue;
+    }
+
+    visited.add(key);
+    space++;
+
+    for (const move of ['up', 'down', 'left', 'right']) {
+      const nextCoord = moveAsCoord(move, current);
+      if (isSafe(board, mySnake, nextCoord)) {
+        queue.push(nextCoord);
+      }
+    }
+  }
+
+  return space;
+}
+
+// Try to trap the enemy snake
+function tryToTrapEnemy(board, mySnake) {
+  for (const enemy of board.snakes) {
+    if (enemy.id === mySnake.id || enemy.length >= mySnake.length) continue;
+
+    const enemyHead = enemy.head;
+    const enemyMoves = ['up', 'down', 'left', 'right'].map(move => moveAsCoord(move, enemyHead));
+    const possibleTraps = enemyMoves.filter(coord => !isSafe(board, mySnake, coord));
+
+    if (possibleTraps.length >= 2) {
+      // Block the remaining open paths
+      for (const move of ['up', 'down', 'left', 'right']) {
+        const myNextCoord = moveAsCoord(move, mySnake.head);
+        if (possibleTraps.some(coord => coordEqual(coord, myNextCoord))) {
+          return move;
+        }
+      }
+    }
+  }
+  return null;
 }
