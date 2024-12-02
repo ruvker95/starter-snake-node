@@ -288,15 +288,6 @@ function getClosestFood(head, foods) {
   return closestFood;
 }
 
-I
-
-
-
-
-I am playing battlesnake and I am coding in JavaScript. I am trying to put this statement into my snake state and come up with a code that will work. Here is what I want it to do: I need to come up with a code that that says If we are next to food, and the enemy snake is close by or next to food also or bigger than my snake, then leave the spot and go to the next closest food. 
-
-Here is what my code looks like so far. Modify my code to have that statement input. 
-
 const bodyParser = require('body-parser');
 const express = require('express');
 const PORT = process.env.PORT || 3000;
