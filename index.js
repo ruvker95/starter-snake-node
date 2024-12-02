@@ -15,7 +15,7 @@ function handleIndex(request, response) {
     author: 'ruvimandaddision',
     color: '#F6DCBD', // Dark red
     head: 'fang',     // Aggressive head
-    tail: 'weight'    // Funny tail
+    tail: 'pixel'    // Funny tail
   };
   response.status(200).json(battlesnakeInfo);
 }
