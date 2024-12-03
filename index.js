@@ -14,7 +14,7 @@ function handleIndex(request, response) {
   const battlesnakeInfo = {
     apiversion: '1',
     author: 'ruvimandaddision',
-    color: '##8B0000', // Aggressive red color
+    color: '#8B0000', // Aggressive red color
     head: 'fang',     // Aggressive head
     tail: 'pixel'     // Sharp tail
   };
