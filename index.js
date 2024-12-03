@@ -40,51 +40,71 @@ function handleMove(request, response) {
     return isSafe(board, mySnake, nextCoord);
   });
 
-  // Find closest food
-  let targetFood = null;
-  for (const food of board.food) {
-    if (!targetFood || distance(myHead, food) < distance(myHead, targetFood)) {
-      targetFood = food;
-    }
-  }
-
-  // Try to attack smaller snakes
-  let targetSnake = null;
-  for (const snake of board.snakes) {
-    if (snake.id !== mySnake.id && snake.length < myLength) {
-      if (!targetSnake || distance(myHead, snake.head) < distance(myHead, targetSnake.head)) {
-        targetSnake = snake.head; // Target the head of the smaller snake
-      }
-    }
-  }
-
+  // Strategy: prioritize based on nearby snakes
+  let target = null;
   let preferredMove = null;
 
-  if (targetSnake) {
-    // Go after the smaller snake
+  // Check nearby snakes to decide behavior
+  let smallerSnakes = board.snakes.filter(snake => snake.id !== mySnake.id && snake.length < myLength);
+  let biggerSnakes = board.snakes.filter(snake => snake.id !== mySnake.id && snake.length >= myLength);
+
+  if (smallerSnakes.length > 0) {
+    // Be aggressive toward smaller snakes
+    let closestSmallSnake = smallerSnakes.reduce((closest, snake) => {
+      const dist = distance(myHead, snake.head);
+      return dist < distance(myHead, closest.head) ? snake : closest;
+    }, smallerSnakes[0]);
+
+    target = closestSmallSnake.head;
+
     let shortestDistance = Infinity;
     for (const move of safeMoves) {
       const nextCoord = moveAsCoord(move, myHead);
-      const dist = distance(nextCoord, targetSnake);
+      const dist = distance(nextCoord, target);
       if (dist < shortestDistance) {
         shortestDistance = dist;
         preferredMove = move;
       }
     }
-  } else if (targetFood) {
-    // Go after food
-    let shortestDistance = Infinity;
-    for (const move of safeMoves) {
-      const nextCoord = moveAsCoord(move, myHead);
-      const dist = distance(nextCoord, targetFood);
-      if (dist < shortestDistance) {
-        shortestDistance = dist;
-        preferredMove = move;
+  } else if (biggerSnakes.length > 0) {
+    // Be defensive and avoid big snakes, prioritize food
+    let closestBigSnake = biggerSnakes.reduce((closest, snake) => {
+      const dist = distance(myHead, snake.head);
+      return dist < distance(myHead, closest.head) ? snake : closest;
+    }, biggerSnakes[0]);
+
+    // Move away from the closest big snake
+    safeMoves.sort((a, b) => {
+      const distA = distance(moveAsCoord(a, myHead), closestBigSnake.head);
+      const distB = distance(moveAsCoord(b, myHead), closestBigSnake.head);
+      return distB - distA;
+    });
+    preferredMove = safeMoves[0];
+  }
+
+  if (!preferredMove) {
+    // Default to food-seeking if no snake targets
+    let targetFood = null;
+    for (const food of board.food) {
+      if (!targetFood || distance(myHead, food) < distance(myHead, targetFood)) {
+        targetFood = food;
+      }
+    }
+
+    if (targetFood) {
+      let shortestDistance = Infinity;
+      for (const move of safeMoves) {
+        const nextCoord = moveAsCoord(move, myHead);
+        const dist = distance(nextCoord, targetFood);
+        if (dist < shortestDistance) {
+          shortestDistance = dist;
+          preferredMove = move;
+        }
       }
     }
   }
 
-  // If no clear target, make a random safe move
+  // Random fallback if no other decision
   if (!preferredMove) {
     preferredMove = safeMoves.length > 0 ? safeMoves[Math.floor(Math.random() * safeMoves.length)] : 'up';
   }
