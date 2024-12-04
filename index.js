@@ -8,14 +8,13 @@ app.post('/start', handleStart);
 app.post('/move', handleMove);
 app.post('/end', handleEnd);
 app.listen(PORT, () => console.log(`Battlesnake Server listening at http://127.0.0.1:${PORT}`));
-
 function handleIndex(request, response) {
   const battlesnakeInfo = {
     apiversion: '1',
     author: 'ruvimandaddision',
     color: '#F6DCBD', // Dark red
-    head: 'sand-worm',     // Aggressive head
-    tail: 'fat-rattle'    // Funny tail
+    head: 'fang',     // Aggressive head
+    tail: 'weight'    // Funny tail
   };
   response.status(200).json(battlesnakeInfo);
 }
@@ -107,12 +106,6 @@ function handleMove(request, response) {
         }
       }
     }
-  }
-
-  // Check if we are next to food and the enemy snake is close by or next to food also or bigger than my snake
-  if (isNextToFood(myHead, targetFood) && (isEnemySnakeClose(mySnake, board.snakes) || isEnemySnakeNextToFood(mySnake, board.snakes) || isEnemySnakeBigger(mySnake, board.snakes))) {
-    // Leave the spot and go to the next closest food
-    targetFood = getClosestFood(myHead, board.food);
   }
 
   // Choose the best move towards the target
@@ -241,49 +234,4 @@ function snakeHitSelfQuestionMark(mySnake, coord) {
 function handleEnd(request, response) {
   console.log('END');
   response.status(200).send('ok');
-}
-
-// Helper functions
-function isNextToFood(head, food) {
-  return Math.abs(head.x - food.x) <= 1 && Math.abs(head.y - food.y) <= 1;
-}
-
-function isEnemySnakeClose(mySnake, snakes) {
-  for (const snake of snakes) {
-    if (snake.id !== mySnake.id && distance(mySnake.head, snake.head) <= 2) {
-      return true;
-    }
-  }
-  return false;
-}
-
-function isEnemySnakeNextToFood(mySnake, snakes) {
-  for (const snake of snakes) {
-    if (snake.id !== mySnake.id && isNextToFood(snake.head, targetFood)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-function isEnemySnakeBigger(mySnake, snakes) {
-  for (const snake of snakes) {
-    if (snake.id !== mySnake.id && snake.length > mySnake.length) {
-      return true;
-    }
-  }
-  return false;
-}
-
-function getClosestFood(head, foods) {
-  let closestFood = null;
-  let shortestDistance = Infinity;
-  for (const food of foods) {
-    const dist = distance(head, food);
-    if (dist < shortestDistance) {
-      shortestDistance = dist;
-      closestFood = food;
-    }
-  }
-  return closestFood;
 }
