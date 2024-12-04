@@ -46,39 +46,32 @@ function handleMove(request, response) {
   const mySnake = gameData.you;
   const myHead = mySnake.head;
   const myLength = mySnake.length;
+  const myHealth = mySnake.health;
   const board = gameData.board;
   const possibleMoves = ['up', 'down', 'left', 'right'];
-  const possibleSnakeStates = ['angry', 'mad', 'hungry', 'baby', 'stinky'];
-  const currentSnakeState= null;
+  const possibleSnakeStates = ['aggressive', 'hungry', 'random'];
+  let currentSnakeState = null;
 
-  // Determine snake state, write functions for this
-  // function determineState
-  /**
-   * if(state = 'hungry') {
-   * 
-   * function execute hungry strat() {
-   * 
-   * Determine moves, send to server
-   * 
-   * }
-   * else if (state = 'sad') {
-   * 
-   *  }
-   */
+  // Determine snake state based on health
+  if (myHealth < 50) {
+    currentSnakeState = 'hungry';
+  } else {
+    // Introduce randomness
+    const randomValue = Math.random();
+    if (randomValue < 0.33) {
+      currentSnakeState = 'aggressive';
+    } else if (randomValue < 0.66) {
+      currentSnakeState = 'random';
+    } else {
+      currentSnakeState = 'hungry';
+    }
+  }
 
-  // Instead of being aggressive, the snake will sometimes follow other snakes' tails
-
-  // Decide movement target
   let target = null;
 
-  // Randomly decide to follow another snake's tail
-  if (Math.random() < 0.5 && board.snakes.length > 1) {
-    // Choose a random other snake to follow
-    let otherSnakes = board.snakes.filter(snake => snake.id !== mySnake.id);
-    let randomSnake = otherSnakes[Math.floor(Math.random() * otherSnakes.length)];
-    target = randomSnake.body[randomSnake.body.length - 1]; // Tail segment
-  } else {
-    // Go for the closest food
+  // Execute strategy based on current state
+  if (currentSnakeState === 'hungry') {
+    // Go after food to stay alive
     let targetFood = null;
     for (const food of board.food) {
       if (!targetFood || distance(myHead, food) < distance(myHead, targetFood)) {
@@ -86,6 +79,45 @@ function handleMove(request, response) {
       }
     }
     target = targetFood;
+  } else if (currentSnakeState === 'aggressive') {
+    // Target other snakes aggressively
+    let targetSnake = null;
+    for (const snake of board.snakes) {
+      if (snake.id !== mySnake.id && snake.length < myLength) {
+        if (!targetSnake || distance(myHead, snake.head) < distance(myHead, targetSnake.head)) {
+          targetSnake = snake;
+        }
+      }
+    }
+    if (targetSnake) {
+      target = targetSnake.head;
+    } else {
+      // If no smaller snake, go after food
+      let targetFood = null;
+      for (const food of board.food) {
+        if (!targetFood || distance(myHead, food) < distance(myHead, targetFood)) {
+          targetFood = food;
+        }
+      }
+      target = targetFood;
+    }
+  } else if (currentSnakeState === 'random') {
+    // Random behavior: sometimes follow other snakes' tails
+    if (Math.random() < 0.5 && board.snakes.length > 1) {
+      // Choose a random other snake to follow
+      let otherSnakes = board.snakes.filter(snake => snake.id !== mySnake.id);
+      let randomSnake = otherSnakes[Math.floor(Math.random() * otherSnakes.length)];
+      target = randomSnake.body[randomSnake.body.length - 1]; // Tail segment
+    } else {
+      // Go after the closest food
+      let targetFood = null;
+      for (const food of board.food) {
+        if (!targetFood || distance(myHead, food) < distance(myHead, targetFood)) {
+          targetFood = food;
+        }
+      }
+      target = targetFood;
+    }
   }
 
   // If no target, default to safe move
@@ -109,14 +141,14 @@ function handleMove(request, response) {
     }
   }
 
-  // Prioritize moves that lead to open spaces
+  // Choose the best move towards the target
   let bestMove = null;
-  let maxSpace = -Infinity;
+  let shortestDistance = Infinity;
   for (const move of safeMoves) {
     const nextCoord = moveAsCoord(move, myHead);
-    const space = floodFill(board, mySnake, nextCoord);
-    if (space > maxSpace) {
-      maxSpace = space;
+    const dist = distance(nextCoord, target);
+    if (dist < shortestDistance) {
+      shortestDistance = dist;
       bestMove = move;
     }
   }
@@ -243,34 +275,6 @@ function snakeHitSelfQuestionMark(mySnake, coord) {
     }
   }
   return false;
-}
-
-/**
- * Simple flood fill to estimate open space from a coordinate
- * @param {*} board 
- * @param {*} mySnake 
- * @param {*} coord 
- * @returns 
- */
-function floodFill(board, mySnake, coord) {
-  const stack = [coord];
-  const visited = {};
-  let count = 0;
-  while (stack.length > 0 && count < 50) { // Limit the count to prevent infinite loops
-    const current = stack.pop();
-    const key = `${current.x},${current.y}`;
-    if (visited[key]) continue;
-    visited[key] = true;
-    count++;
-
-    const neighbors = getAdjacentCoords(current);
-    for (const neighbor of neighbors) {
-      if (!offBoard(board, neighbor) && isSafe(board, mySnake, neighbor) && !visited[`${neighbor.x},${neighbor.y}`]) {
-        stack.push(neighbor);
-      }
-    }
-  }
-  return count;
 }
 
 /**
