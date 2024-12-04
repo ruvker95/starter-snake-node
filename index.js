@@ -49,83 +49,76 @@ function handleMove(request, response) {
   const myHealth = mySnake.health;
   const board = gameData.board;
   const possibleMoves = ['up', 'down', 'left', 'right'];
-  const possibleSnakeStates = ['aggressive', 'hungry', 'random'];
-  let currentSnakeState = null;
+  const possibleSnakeStates = ['hungry', 'avoid_snakes'];
+  let currentSnakeState = 'hungry';
 
-  // Determine snake state based on health
-  if (myHealth < 50) {
-    currentSnakeState = 'hungry';
-  } else {
-    // Introduce randomness
-    const randomValue = Math.random();
-    if (randomValue < 0.33) {
-      currentSnakeState = 'aggressive';
-    } else if (randomValue < 0.66) {
-      currentSnakeState = 'random';
-    } else {
-      currentSnakeState = 'hungry';
+  // Determine the closest food
+  let targetFood = null;
+  let minFoodDistance = Infinity;
+  for (const food of board.food) {
+    const dist = distance(myHead, food);
+    if (dist < minFoodDistance) {
+      minFoodDistance = dist;
+      targetFood = food;
     }
   }
 
-  let target = null;
+  // Check if there are multiple foods close by (within 2 units)
+  let nearbyFoods = board.food.filter(food => distance(myHead, food) <= 2);
 
-  // Execute strategy based on current state
-  if (currentSnakeState === 'hungry') {
-    // Go after food to stay alive
-    let targetFood = null;
-    for (const food of board.food) {
-      if (!targetFood || distance(myHead, food) < distance(myHead, targetFood)) {
+  // Check if there are multiple snakes close by (within 3 units)
+  let nearbySnakes = board.snakes.filter(snake => {
+    if (snake.id !== mySnake.id) {
+      return distance(myHead, snake.head) <= 3;
+    }
+    return false;
+  });
+
+  // Decide movement target based on nearby food and snakes
+  if (nearbySnakes.length > 0) {
+    currentSnakeState = 'avoid_snakes';
+  } else if (nearbyFoods.length >= 2) {
+    // If multiple foods are close by and no snakes nearby, stick to it
+    // Set target to the center of nearby foods
+    const avgX = Math.round(nearbyFoods.reduce((sum, food) => sum + food.x, 0) / nearbyFoods.length);
+    const avgY = Math.round(nearbyFoods.reduce((sum, food) => sum + food.y, 0) / nearbyFoods.length);
+    targetFood = { x: avgX, y: avgY };
+  } else if (targetFood && nearbySnakes.length === 0) {
+    // Proceed to closest food if no snakes are nearby
+    currentSnakeState = 'hungry';
+  } else {
+    // If snakes are near the closest food, find next closest safe food
+    let safeFoods = board.food.filter(food => {
+      for (const snake of board.snakes) {
+        if (snake.id !== mySnake.id && distance(snake.head, food) <= 3) {
+          return false; // Food is near another snake
+        }
+      }
+      return true;
+    });
+
+    // Find the closest safe food
+    targetFood = null;
+    minFoodDistance = Infinity;
+    for (const food of safeFoods) {
+      const dist = distance(myHead, food);
+      if (dist < minFoodDistance) {
+        minFoodDistance = dist;
         targetFood = food;
       }
     }
-    target = targetFood;
-  } else if (currentSnakeState === 'aggressive') {
-    // Target other snakes aggressively
-    let targetSnake = null;
-    for (const snake of board.snakes) {
-      if (snake.id !== mySnake.id && snake.length < myLength) {
-        if (!targetSnake || distance(myHead, snake.head) < distance(myHead, targetSnake.head)) {
-          targetSnake = snake;
-        }
-      }
-    }
-    if (targetSnake) {
-      target = targetSnake.head;
-    } else {
-      // If no smaller snake, go after food
-      let targetFood = null;
-      for (const food of board.food) {
-        if (!targetFood || distance(myHead, food) < distance(myHead, targetFood)) {
-          targetFood = food;
-        }
-      }
-      target = targetFood;
-    }
-  } else if (currentSnakeState === 'random') {
-    // Random behavior: sometimes follow other snakes' tails
-    if (Math.random() < 0.5 && board.snakes.length > 1) {
-      // Choose a random other snake to follow
-      let otherSnakes = board.snakes.filter(snake => snake.id !== mySnake.id);
-      let randomSnake = otherSnakes[Math.floor(Math.random() * otherSnakes.length)];
-      target = randomSnake.body[randomSnake.body.length - 1]; // Tail segment
-    } else {
-      // Go after the closest food
-      let targetFood = null;
-      for (const food of board.food) {
-        if (!targetFood || distance(myHead, food) < distance(myHead, targetFood)) {
-          targetFood = food;
-        }
-      }
-      target = targetFood;
+
+    // If no safe food, just avoid snakes
+    if (!targetFood) {
+      currentSnakeState = 'avoid_snakes';
     }
   }
 
-  // If no target, default to safe move
-  if (!target) {
-    // Default to a safe move if no target
-    for(const move of possibleMoves) {
+  // If no targetFood found, default to safe move
+  if (!targetFood) {
+    for (const move of possibleMoves) {
       const nextCoord = moveAsCoord(move, myHead);
-      if(!offBoard(board, nextCoord) && isSafe(board, mySnake, nextCoord)) {
+      if (!offBoard(board, nextCoord) && isSafe(board, mySnake, nextCoord)) {
         response.status(200).send({ move: move });
         return;
       }
@@ -141,12 +134,12 @@ function handleMove(request, response) {
     }
   }
 
-  // Choose the best move towards the target
+  // Choose the best move towards the targetFood
   let bestMove = null;
   let shortestDistance = Infinity;
   for (const move of safeMoves) {
     const nextCoord = moveAsCoord(move, myHead);
-    const dist = distance(nextCoord, target);
+    const dist = distance(nextCoord, targetFood);
     if (dist < shortestDistance) {
       shortestDistance = dist;
       bestMove = move;
@@ -161,7 +154,7 @@ function handleMove(request, response) {
     console.log('No best move found, defaulting to safe move.');
     for (const move of possibleMoves) {
       const nextCoord = moveAsCoord(move, myHead);
-      if(!offBoard(board, nextCoord) && !snakeHitSelfQuestionMark(mySnake, nextCoord)) {
+      if (!offBoard(board, nextCoord) && !snakeHitSelfQuestionMark(mySnake, nextCoord)) {
         response.status(200).send({ move: move });
         return;
       }
@@ -207,9 +200,9 @@ function isSafe(board, mySnake, coord) {
   // Avoid walls
   if (offBoard(board, coord)) {
     return false;
-  } 
+  }
   // Avoid self
-  if(snakeHitSelfQuestionMark(mySnake, coord)) {
+  if (snakeHitSelfQuestionMark(mySnake, coord)) {
     return false;
   }
   // Avoid other snakes' bodies
