@@ -49,7 +49,7 @@ function handleMove(request, response) {
   const board = gameData.board;
   const possibleMoves = ['up', 'down', 'left', 'right'];
   const possibleSnakeStates = ['angry', 'mad', 'hungry', 'baby', 'stinky'];
-  const currentSnakeState = null;
+  const currentSnakeState= null;
 
   // Determine snake state, write functions for this
   // function determineState
@@ -85,23 +85,23 @@ function handleMove(request, response) {
     }
   }
 
-  // Check if any other snake is closer to the targetFood
-  let isFoodContested = false;
+  // Check if any bigger snake is also going after the same food
+  let isFoodContestedByBiggerSnake = false;
   if (targetFood) {
     for (const snake of board.snakes) {
-      if (snake.id !== mySnake.id) {
+      if (snake.id !== mySnake.id && snake.length >= myLength) {
         const theirDistance = distance(snake.head, targetFood);
         const myDistance = distance(myHead, targetFood);
         if (theirDistance <= myDistance) {
-          // Another snake is as close or closer to the target food
-          isFoodContested = true;
+          // A bigger snake is as close or closer to the target food
+          isFoodContestedByBiggerSnake = true;
           break;
         }
       }
     }
   }
 
-  if (isFoodContested) {
+  if (isFoodContestedByBiggerSnake) {
     // Avoid that food, go for next closest food
     let nextClosestFood = null;
     for (const food of board.food) {
@@ -146,31 +146,23 @@ function handleMove(request, response) {
     }
   }
 
-  // If we are close to colliding with another snake's body, avoid it
+  // Remove moves that could result in head-to-head collisions with larger snakes
   let saferMoves = [];
   for (const move of safeMoves) {
     const nextCoord = moveAsCoord(move, myHead);
     let isDangerous = false;
     for (const snake of board.snakes) {
       if (snake.id !== mySnake.id) {
-        // Check if the next coordinate is adjacent to another snake's body
-        for (const segment of snake.body) {
-          if (coordEqual(nextCoord, segment)) {
-            isDangerous = true;
-            break;
-          }
+        const theirNextCoords = [];
+        // Assume the other snake can move in any direction
+        for (const theirMove of possibleMoves) {
+          const theirNextCoord = moveAsCoord(theirMove, snake.head);
+          theirNextCoords.push(theirNextCoord);
         }
-        // If the other snake is bigger, avoid moving next to its head
-        if (snake.length >= myLength) {
-          const theirHead = snake.head;
-          const adjacentCoords = [
-            { x: theirHead.x, y: theirHead.y +1 },
-            { x: theirHead.x, y: theirHead.y -1 },
-            { x: theirHead.x +1, y: theirHead.y },
-            { x: theirHead.x -1, y: theirHead.y },
-          ];
-          for (const adjCoord of adjacentCoords) {
-            if (coordEqual(nextCoord, adjCoord)) {
+        for (const theirNextCoord of theirNextCoords) {
+          if (coordEqual(nextCoord, theirNextCoord)) {
+            // Potential head-to-head collision
+            if (snake.length >= myLength) {
               isDangerous = true;
               break;
             }
@@ -184,17 +176,12 @@ function handleMove(request, response) {
     }
   }
 
-  // If there are safer moves after avoiding other snakes, use them
-  if (saferMoves.length > 0) {
-    safeMoves = saferMoves;
-  }
-
-  // Choose the best move from safeMoves
+  // Choose the best move from saferMoves
   let bestMove = null;
   let shortestDistance = Infinity;
-  for (const move of safeMoves) {
+  for (const move of saferMoves) {
     const nextCoord = moveAsCoord(move, myHead);
-    const dist = target ? distance(nextCoord, target) : 0;
+    const dist = distance(nextCoord, target);
     if (dist < shortestDistance) {
       shortestDistance = dist;
       bestMove = move;
@@ -220,7 +207,7 @@ function handleMove(request, response) {
 }
 
 /**
- * Predetermine where this move will take us (i.e., the coordinates after the move has been applied)
+ * Predetermine where this move will take is (i.e., the coordinates after the move has been applied)
  * @param {*} move the move we are checking
  * @param {*} head head of the snake 
  * @returns 
@@ -256,73 +243,7 @@ function isSafe(board, mySnake, coord) {
   if (offBoard(board, coord)) {
     return false;
   } 
-  // Stop hitting yourself
+  /** Stop hitting yourself */
   if(snakeHitSelfQuestionMark(mySnake, coord)) {
     return false;
   }
-  // Avoid other snakes' bodies
-  for (const snake of board.snakes) {
-    for (const segment of snake.body) {
-      if (coordEqual(coord, segment)) return false;
-    }
-  }
-  // Avoid moving adjacent to larger snakes' heads
-  for (const snake of board.snakes) {
-    if (snake.id !== mySnake.id && snake.length >= mySnake.length) {
-      const theirHead = snake.head;
-      const adjacentCoords = [
-        { x: theirHead.x, y: theirHead.y +1 },
-        { x: theirHead.x, y: theirHead.y -1 },
-        { x: theirHead.x +1, y: theirHead.y },
-        { x: theirHead.x -1, y: theirHead.y },
-      ];
-      for (const adjCoord of adjacentCoords) {
-        if (coordEqual(coord, adjCoord)) return false;
-      }
-    }
-  }
-  return true;
-}
-
-/**
- * Checks whether two coordinates are equal
- * @param {Number} a 
- * @param {Number} b 
- * @returns boolean
- */
-function coordEqual(a, b) {
-  return a.x === b.x && a.y === b.y;
-}
-
-/**
- * Calculates the Manhattan distance between two points
- * @param {*} a 
- * @param {*} b 
- * @returns 
- */
-function distance(a, b) {
-  return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
-}
-
-/**
- * Does the snake hit itself? If it does, don't
- */
-function snakeHitSelfQuestionMark(mySnake, coord) {
-  // Avoid self
-  for (const segment of mySnake.body) {
-    if (coordEqual(coord, segment))  {
-      return true;
-    }
-  }
-  return false;
-}
-
-/**
- * 
- * @param {*} request 
- * @param {*} response 
- */
-function handleEnd(request, response) {
-  console.log('END');
-  response.status(200).send('ok');
-}
