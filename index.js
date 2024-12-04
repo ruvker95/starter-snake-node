@@ -248,3 +248,12 @@ function isSafe(board, mySnake, coord) {
     return false;
   }
 }
+/**
+ * 
+ * @param {*} request 
+ * @param {*} response 
+ */
+function handleEnd(request, response) {
+  console.log('END');
+  response.status(200).send('ok');
+}
