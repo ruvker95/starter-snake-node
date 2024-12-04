@@ -85,23 +85,23 @@ function handleMove(request, response) {
     }
   }
 
-  // Check if any bigger snake is also going after the same food
-  let isFoodContestedByBiggerSnake = false;
+  // Check if any other snake is closer to the targetFood
+  let isFoodContested = false;
   if (targetFood) {
     for (const snake of board.snakes) {
-      if (snake.id !== mySnake.id && snake.length >= myLength) {
+      if (snake.id !== mySnake.id) {
         const theirDistance = distance(snake.head, targetFood);
         const myDistance = distance(myHead, targetFood);
         if (theirDistance <= myDistance) {
-          // A bigger snake is as close or closer to the target food
-          isFoodContestedByBiggerSnake = true;
+          // Another snake is as close or closer to the target food
+          isFoodContested = true;
           break;
         }
       }
     }
   }
 
-  if (isFoodContestedByBiggerSnake) {
+  if (isFoodContested) {
     // Avoid that food, go for next closest food
     let nextClosestFood = null;
     for (const food of board.food) {
@@ -146,29 +146,18 @@ function handleMove(request, response) {
     }
   }
 
-  // Remove moves that could result in head-to-head collisions with larger snakes
+  // Remove moves that would collide with other snake heads directly ahead
   let saferMoves = [];
   for (const move of safeMoves) {
     const nextCoord = moveAsCoord(move, myHead);
     let isDangerous = false;
     for (const snake of board.snakes) {
       if (snake.id !== mySnake.id) {
-        const theirNextCoords = [];
-        // Assume the other snake can move in any direction
-        for (const theirMove of possibleMoves) {
-          const theirNextCoord = moveAsCoord(theirMove, snake.head);
-          theirNextCoords.push(theirNextCoord);
+        // Check if there's a snake head directly in the way
+        if (coordEqual(nextCoord, snake.head)) {
+          isDangerous = true;
+          break;
         }
-        for (const theirNextCoord of theirNextCoords) {
-          if (coordEqual(nextCoord, theirNextCoord)) {
-            // Potential head-to-head collision
-            if (snake.length >= myLength) {
-              isDangerous = true;
-              break;
-            }
-          }
-        }
-        if (isDangerous) break;
       }
     }
     if (!isDangerous) {
@@ -176,10 +165,15 @@ function handleMove(request, response) {
     }
   }
 
-  // Choose the best move from saferMoves
+  // If there's a snake on top or in the way, avoid it by moving left or right
+  if (saferMoves.length > 0) {
+    safeMoves = saferMoves;
+  }
+
+  // Choose the best move from safeMoves
   let bestMove = null;
   let shortestDistance = Infinity;
-  for (const move of saferMoves) {
+  for (const move of safeMoves) {
     const nextCoord = moveAsCoord(move, myHead);
     const dist = distance(nextCoord, target);
     if (dist < shortestDistance) {
@@ -207,7 +201,7 @@ function handleMove(request, response) {
 }
 
 /**
- * Predetermine where this move will take is (i.e., the coordinates after the move has been applied)
+ * Predetermine where this move will take us (i.e., the coordinates after the move has been applied)
  * @param {*} move the move we are checking
  * @param {*} head head of the snake 
  * @returns 
@@ -247,7 +241,48 @@ function isSafe(board, mySnake, coord) {
   if(snakeHitSelfQuestionMark(mySnake, coord)) {
     return false;
   }
+  // Avoid other snakes
+  for (const snake of board.snakes) {
+    for (const segment of snake.body) {
+      if (coordEqual(coord, segment)) return false;
+    }
+  }
+  return true;
 }
+
+/**
+ * Checks whether two coordinates are equal
+ * @param {Number} a 
+ * @param {Number} b 
+ * @returns boolean
+ */
+function coordEqual(a, b) {
+  return a.x === b.x && a.y === b.y;
+}
+
+/**
+ * Calculates the Manhattan distance between two points
+ * @param {*} a 
+ * @param {*} b 
+ * @returns 
+ */
+function distance(a, b) {
+  return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+}
+
+/**
+ * Does the snake hit itself? If it does, don't
+ */
+function snakeHitSelfQuestionMark(mySnake, coord) {
+  // Avoid self
+  for (const segment of mySnake.body) {
+    if (coordEqual(coord, segment))  {
+      return true;
+    }
+  }
+  return false;
+}
+
 /**
  * 
  * @param {*} request 
