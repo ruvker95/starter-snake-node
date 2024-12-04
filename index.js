@@ -49,7 +49,7 @@ function handleMove(request, response) {
   const myHealth = mySnake.health;
   const board = gameData.board;
   const possibleMoves = ['up', 'down', 'left', 'right'];
-  const possibleSnakeStates = ['hungry', 'avoid_snakes'];
+  const possibleSnakeStates = ['hungry', 'avoid_snakes', 'find_space'];
   let currentSnakeState = 'hungry';
 
   // Determine the closest food
@@ -74,7 +74,7 @@ function handleMove(request, response) {
     return false;
   });
 
-  // Decide movement target based on nearby food and snakes
+  // Decide movement target based on snake length and nearby elements
   if (nearbySnakes.length > 0) {
     currentSnakeState = 'avoid_snakes';
   } else if (nearbyFoods.length >= 2) {
@@ -114,8 +114,17 @@ function handleMove(request, response) {
     }
   }
 
-  // If no targetFood found, default to safe move
-  if (!targetFood) {
+  let target = null;
+
+  if (currentSnakeState === 'find_space') {
+    // When snake is big enough, find open space to move
+    target = findLargestOpenSpace(board, mySnake);
+  } else if (currentSnakeState === 'hungry' || currentSnakeState === 'avoid_snakes') {
+    target = targetFood;
+  }
+
+  // If no target found, default to safe move
+  if (!target) {
     for (const move of possibleMoves) {
       const nextCoord = moveAsCoord(move, myHead);
       if (!offBoard(board, nextCoord) && isSafe(board, mySnake, nextCoord)) {
@@ -134,14 +143,16 @@ function handleMove(request, response) {
     }
   }
 
-  // Choose the best move towards the targetFood
+  // Evaluate moves based on space and potential collisions with larger snakes
   let bestMove = null;
-  let shortestDistance = Infinity;
+  let maxScore = -Infinity;
   for (const move of safeMoves) {
     const nextCoord = moveAsCoord(move, myHead);
-    const dist = distance(nextCoord, targetFood);
-    if (dist < shortestDistance) {
-      shortestDistance = dist;
+    const space = floodFill(board, mySnake, nextCoord);
+    const collisionRisk = evaluateCollisionRisk(board, mySnake, nextCoord);
+    const score = space - collisionRisk;
+    if (score > maxScore) {
+      maxScore = score;
       bestMove = move;
     }
   }
@@ -162,6 +173,98 @@ function handleMove(request, response) {
     // As a last resort, default to 'up'
     response.status(200).send({ move: 'up' });
   }
+}
+
+/**
+ * Evaluate collision risk based on other snakes' sizes
+ * @param {*} board 
+ * @param {*} mySnake 
+ * @param {*} coord 
+ * @returns A risk score (higher means higher risk)
+ */
+function evaluateCollisionRisk(board, mySnake, coord) {
+  let risk = 0;
+  for (const snake of board.snakes) {
+    if (snake.id !== mySnake.id) {
+      const theirHead = snake.head;
+      const theirLength = snake.length;
+      const distanceToTheirHead = distance(coord, theirHead);
+      if (distanceToTheirHead === 0) {
+        // Avoid head-on collision with larger or equal snakes
+        if (theirLength >= mySnake.length) {
+          risk += 100;
+        }
+      } else if (distanceToTheirHead <= 2) {
+        // Increase risk if close to a larger snake
+        if (theirLength >= mySnake.length) {
+          risk += (3 - distanceToTheirHead) * 10;
+        }
+      }
+      // Avoid their bodies
+      for (const segment of snake.body) {
+        if (coordEqual(coord, segment)) {
+          risk += 100;
+        }
+      }
+    }
+  }
+  return risk;
+}
+
+/**
+ * Finds the center of the largest open space on the board
+ * @param {*} board 
+ * @param {*} mySnake 
+ * @returns Coordinate of the largest open space
+ */
+function findLargestOpenSpace(board, mySnake) {
+  const width = board.width;
+  const height = board.height;
+  let maxSpace = 0;
+  let bestCoord = mySnake.head;
+
+  for (let x = 0; x < width; x++) {
+    for (let y = 0; y < height; y++) {
+      const coord = { x: x, y: y };
+      if (isSafe(board, mySnake, coord)) {
+        const space = floodFill(board, mySnake, coord);
+        if (space > maxSpace) {
+          maxSpace = space;
+          bestCoord = coord;
+        }
+      }
+    }
+  }
+
+  return bestCoord;
+}
+
+/**
+ * Simple flood fill to estimate open space from a coordinate
+ * @param {*} board 
+ * @param {*} mySnake 
+ * @param {*} coord 
+ * @returns 
+ */
+function floodFill(board, mySnake, coord) {
+  const stack = [coord];
+  const visited = {};
+  let count = 0;
+  while (stack.length > 0 && count < 200) { // Increased limit for larger snakes
+    const current = stack.pop();
+    const key = `${current.x},${current.y}`;
+    if (visited[key]) continue;
+    visited[key] = true;
+    count++;
+
+    const neighbors = getAdjacentCoords(current);
+    for (const neighbor of neighbors) {
+      if (!offBoard(board, neighbor) && isSafe(board, mySnake, neighbor) && !visited[`${neighbor.x},${neighbor.y}`]) {
+        stack.push(neighbor);
+      }
+    }
+  }
+  return count;
 }
 
 /**
@@ -211,12 +314,17 @@ function isSafe(board, mySnake, coord) {
       if (coordEqual(coord, segment)) return false;
     }
   }
-  // Avoid collisions with other snakes' heads
+  // Avoid potential head-on collisions
   for (const snake of board.snakes) {
     if (snake.id !== mySnake.id) {
       const theirNextCoords = getAdjacentCoords(snake.head);
       for (const nextCoord of theirNextCoords) {
-        if (coordEqual(coord, nextCoord)) return false;
+        if (coordEqual(coord, nextCoord)) {
+          // Avoid if the other snake is equal or larger
+          if (snake.length >= mySnake.length) {
+            return false;
+          }
+        }
       }
     }
   }
