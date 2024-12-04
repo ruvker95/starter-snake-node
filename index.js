@@ -20,18 +20,62 @@ function handleIndex(request, response) {
   response.status(200).json(battlesnakeInfo);
 }
 
+/**
+ * 
+ * @param {*} request 
+ * @param {*} response 
+ */
 function handleStart(request, response) {
   console.log('START');
   response.status(200).send('ok');
 }
 
+/**
+ * do the thing
+ * @param {*} request 
+ * @param {*} response 
+ * @returns 
+ */
 function handleMove(request, response) {
+  /** Optional: Have different states the snake will go into based
+   * on current server situation.
+   * Example: "scared", "hungry", and "wimpy".
+   * 
+   */
   const gameData = request.body;
   const mySnake = gameData.you;
   const myHead = mySnake.head;
   const myLength = mySnake.length;
   const board = gameData.board;
   const possibleMoves = ['up', 'down', 'left', 'right'];
+  const possibleSnakeStates = ['angry', 'mad', 'hungry', 'baby', 'stinky'];
+  const currentSnakeState= null;
+
+  // Determine snake state, write functions for this
+  // function determineState
+  /**
+   * if(state = 'hungry') {
+   * 
+   * function execute hungry strat() {
+   * 
+   * Determine moves, send to server
+   * 
+   * }
+   * else if (state = 'sad') {
+   * 
+   *  }
+   */
+
+  // Determine the closest smaller snake
+  let targetSnake = null;
+  for (const snake of board.snakes) {
+    console.log("Checking snake " + snake.id);
+    if (snake.id !== mySnake.id && snake.length < myLength) {
+      if (!targetSnake || distance(myHead, snake.head) < distance(myHead, targetSnake.head)) {
+        targetSnake = snake;
+      }
+    }
+  }
 
   // Determine the closest food
   let targetFood = null;
@@ -41,36 +85,96 @@ function handleMove(request, response) {
     }
   }
 
-  // Check for nearby snakes going after the same food
-  for (const snake of board.snakes) {
-    if (snake.id !== mySnake.id) {
-      const distToFood = distance(snake.head, targetFood);
-      const myDistToFood = distance(myHead, targetFood);
-
-      if (distToFood <= myDistToFood && distToFood <= 2) {
-        // Switch to the next closest food if another snake is close to the same target
-        targetFood = null;
-        for (const food of board.food) {
-          if (
-            !coordEqual(food, targetFood) && 
-            (!targetFood || distance(myHead, food) < distance(myHead, targetFood))
-          ) {
-            targetFood = food;
-          }
+  // Check if any other snake is closer to the targetFood
+  let isFoodContested = false;
+  if (targetFood) {
+    for (const snake of board.snakes) {
+      if (snake.id !== mySnake.id) {
+        const theirDistance = distance(snake.head, targetFood);
+        const myDistance = distance(myHead, targetFood);
+        if (theirDistance <= myDistance) {
+          // Another snake is as close or closer to the target food
+          isFoodContested = true;
+          break;
         }
-        break;
       }
     }
   }
 
-  // Choose the best move towards the target
-  let target = targetFood || myHead; // Default to staying in place if no target
-  let bestMove = null;
-  let shortestDistance = Infinity;
+  if (isFoodContested) {
+    // Avoid that food, go for next closest food
+    let nextClosestFood = null;
+    for (const food of board.food) {
+      if (!coordEqual(food, targetFood)) {
+        if (!nextClosestFood || distance(myHead, food) < distance(myHead, nextClosestFood)) {
+          nextClosestFood = food;
+        }
+      }
+    }
+    targetFood = nextClosestFood;
+  }
 
+  // Decide movement target
+  let target = null;
+  if (targetSnake) {
+    target = targetSnake.head; // Attack smaller snake
+  } else if (targetFood) {
+    target = targetFood; // Go for food
+  }
+
+  if (!target) {
+    // Default to a safe move if no target
+    /** Add check here to make sure you stay on board */
+    for(const move of possibleMoves) {
+      const nextCoord = moveAsCoord(move, myHead);
+      if(!offBoard(board, nextCoord)) {
+        /** Doesn't take snake off board, does this move cause our snake to run into itself? */
+        if(!snakeHitSelfQuestionMark(mySnake, nextCoord)) {
+          response.status(200).send({ move: move });
+          return;
+        }
+      }
+    }
+  }
+
+  // Get safe moves
+  let safeMoves = [];
   for (const move of possibleMoves) {
     const nextCoord = moveAsCoord(move, myHead);
-    if (!isSafe(board, mySnake, nextCoord)) continue;
+    if (isSafe(board, mySnake, nextCoord)) {
+      safeMoves.push(move);
+    }
+  }
+
+  // Remove moves that would collide with other snake heads directly ahead
+  let saferMoves = [];
+  for (const move of safeMoves) {
+    const nextCoord = moveAsCoord(move, myHead);
+    let isDangerous = false;
+    for (const snake of board.snakes) {
+      if (snake.id !== mySnake.id) {
+        // Check if there's a snake head directly in the way
+        if (coordEqual(nextCoord, snake.head)) {
+          isDangerous = true;
+          break;
+        }
+      }
+    }
+    if (!isDangerous) {
+      saferMoves.push(move);
+    }
+  }
+
+  // If there's a snake on top or in the way, avoid it by moving left or right
+  if (saferMoves.length > 0) {
+    safeMoves = saferMoves;
+  }
+
+  // Choose the best move from safeMoves
+  let bestMove = null;
+  let shortestDistance = Infinity;
+  for (const move of safeMoves) {
+    const nextCoord = moveAsCoord(move, myHead);
     const dist = distance(nextCoord, target);
     if (dist < shortestDistance) {
       shortestDistance = dist;
@@ -82,18 +186,26 @@ function handleMove(request, response) {
     console.log('MOVE:', bestMove);
     response.status(200).send({ move: bestMove });
   } else {
-    // Default to any move that doesn't go off board or collide with self
-    console.log('No best move found, defaulting to safe move.');
-    for (const move of possibleMoves) {
+    /** If we determine there are no safe moves, we still don't want to go off board, so add some checks here */
+    console.log('No best move found, still need to make a move that does not take us off map');
+    for(const move of possibleMoves) {
       const nextCoord = moveAsCoord(move, myHead);
-      if (!offBoard(board, nextCoord) && !snakeHitSelfQuestionMark(mySnake, nextCoord)) {
-        response.status(200).send({ move });
+      if(!offBoard(board, nextCoord) && !snakeHitSelfQuestionMark(mySnake, nextCoord)) {
+        response.status(200).send({ move: move });
         return;
       }
     }
+    // As a last resort, default to 'up'
+    response.status(200).send({ move: 'up' });
   }
 }
 
+/**
+ * Predetermine where this move will take us (i.e., the coordinates after the move has been applied)
+ * @param {*} move the move we are checking
+ * @param {*} head head of the snake 
+ * @returns 
+ */
 function moveAsCoord(move, head) {
   switch (move) {
     case 'up': return { x: head.x, y: head.y + 1 };
@@ -103,14 +215,33 @@ function moveAsCoord(move, head) {
   }
 }
 
+/**
+ * 
+ * @param {*} board 
+ * @param {*} coord 
+ * @returns 
+ */
 function offBoard(board, coord) {
   return coord.x < 0 || coord.y < 0 || coord.x >= board.width || coord.y >= board.height;
 }
 
+/**
+ * Determine whether the move is safe
+ * @param {} board 
+ * @param {*} mySnake 
+ * @param {*} coord 
+ * @returns 
+ */
 function isSafe(board, mySnake, coord) {
-  if (offBoard(board, coord)) return false;
-  if (snakeHitSelfQuestionMark(mySnake, coord)) return false;
-
+  // Avoid walls
+  if (offBoard(board, coord)) {
+    return false;
+  } 
+  /** Stop hitting yourself */
+  if(snakeHitSelfQuestionMark(mySnake, coord)) {
+    return false;
+  }
+  // Avoid other snakes
   for (const snake of board.snakes) {
     for (const segment of snake.body) {
       if (coordEqual(coord, segment)) return false;
@@ -119,21 +250,44 @@ function isSafe(board, mySnake, coord) {
   return true;
 }
 
+/**
+ * Checks whether two coordinates are equal
+ * @param {Number} a 
+ * @param {Number} b 
+ * @returns boolean
+ */
 function coordEqual(a, b) {
   return a.x === b.x && a.y === b.y;
 }
 
+/**
+ * Calculates the Manhattan distance between two points
+ * @param {*} a 
+ * @param {*} b 
+ * @returns 
+ */
 function distance(a, b) {
   return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
 }
 
+/**
+ * Does the snake hit itself? If it does, don't
+ */
 function snakeHitSelfQuestionMark(mySnake, coord) {
+  // Avoid self
   for (const segment of mySnake.body) {
-    if (coordEqual(coord, segment)) return true;
+    if (coordEqual(coord, segment))  {
+      return true;
+    }
   }
   return false;
 }
 
+/**
+ * 
+ * @param {*} request 
+ * @param {*} response 
+ */
 function handleEnd(request, response) {
   console.log('END');
   response.status(200).send('ok');
