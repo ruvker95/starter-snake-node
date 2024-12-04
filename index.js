@@ -247,3 +247,4 @@ function isSafe(board, mySnake, coord) {
   if(snakeHitSelfQuestionMark(mySnake, coord)) {
     return false;
   }
+}
