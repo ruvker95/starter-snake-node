@@ -49,7 +49,7 @@ function handleMove(request, response) {
   const board = gameData.board;
   const possibleMoves = ['up', 'down', 'left', 'right'];
   const possibleSnakeStates = ['angry', 'mad', 'hungry', 'baby', 'stinky'];
-  const currentSnakeState= null;
+  const currentSnakeState = null;
 
   // Determine snake state, write functions for this
   // function determineState
@@ -146,18 +146,37 @@ function handleMove(request, response) {
     }
   }
 
-  // Remove moves that would collide with other snake heads directly ahead
+  // If we are close to colliding with another snake's body, avoid it
   let saferMoves = [];
   for (const move of safeMoves) {
     const nextCoord = moveAsCoord(move, myHead);
     let isDangerous = false;
     for (const snake of board.snakes) {
       if (snake.id !== mySnake.id) {
-        // Check if there's a snake head directly in the way
-        if (coordEqual(nextCoord, snake.head)) {
-          isDangerous = true;
-          break;
+        // Check if the next coordinate is adjacent to another snake's body
+        for (const segment of snake.body) {
+          if (coordEqual(nextCoord, segment)) {
+            isDangerous = true;
+            break;
+          }
         }
+        // If the other snake is bigger, avoid moving next to its head
+        if (snake.length >= myLength) {
+          const theirHead = snake.head;
+          const adjacentCoords = [
+            { x: theirHead.x, y: theirHead.y +1 },
+            { x: theirHead.x, y: theirHead.y -1 },
+            { x: theirHead.x +1, y: theirHead.y },
+            { x: theirHead.x -1, y: theirHead.y },
+          ];
+          for (const adjCoord of adjacentCoords) {
+            if (coordEqual(nextCoord, adjCoord)) {
+              isDangerous = true;
+              break;
+            }
+          }
+        }
+        if (isDangerous) break;
       }
     }
     if (!isDangerous) {
@@ -165,7 +184,7 @@ function handleMove(request, response) {
     }
   }
 
-  // If there's a snake on top or in the way, avoid it by moving left or right
+  // If there are safer moves after avoiding other snakes, use them
   if (saferMoves.length > 0) {
     safeMoves = saferMoves;
   }
@@ -175,7 +194,7 @@ function handleMove(request, response) {
   let shortestDistance = Infinity;
   for (const move of safeMoves) {
     const nextCoord = moveAsCoord(move, myHead);
-    const dist = distance(nextCoord, target);
+    const dist = target ? distance(nextCoord, target) : 0;
     if (dist < shortestDistance) {
       shortestDistance = dist;
       bestMove = move;
@@ -237,14 +256,29 @@ function isSafe(board, mySnake, coord) {
   if (offBoard(board, coord)) {
     return false;
   } 
-  /** Stop hitting yourself */
+  // Stop hitting yourself
   if(snakeHitSelfQuestionMark(mySnake, coord)) {
     return false;
   }
-  // Avoid other snakes
+  // Avoid other snakes' bodies
   for (const snake of board.snakes) {
     for (const segment of snake.body) {
       if (coordEqual(coord, segment)) return false;
+    }
+  }
+  // Avoid moving adjacent to larger snakes' heads
+  for (const snake of board.snakes) {
+    if (snake.id !== mySnake.id && snake.length >= mySnake.length) {
+      const theirHead = snake.head;
+      const adjacentCoords = [
+        { x: theirHead.x, y: theirHead.y +1 },
+        { x: theirHead.x, y: theirHead.y -1 },
+        { x: theirHead.x +1, y: theirHead.y },
+        { x: theirHead.x -1, y: theirHead.y },
+      ];
+      for (const adjCoord of adjacentCoords) {
+        if (coordEqual(coord, adjCoord)) return false;
+      }
     }
   }
   return true;
