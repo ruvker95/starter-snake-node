@@ -45,11 +45,9 @@ function handleMove(request, response) {
     return;
   }
 
-  // Find shortest paths to all foods using a single BFS
-  // This BFS will return shortest distances and paths to reachable food cells
+  // Find shortest paths to all foods using BFS
   const { distances, parents } = bfsFindFoods(board, mySnake, myHead);
 
-  // Evaluate each reachable food based on the new criteria
   let candidateFoods = [];
   for (const food of foods) {
     const key = `${food.x},${food.y}`;
@@ -60,18 +58,21 @@ function handleMove(request, response) {
         // Simulate taking this path and eating the food
         const finalSnakeBody = simulateSnakeAfterPath(mySnake, path);
         // After eating the food, run flood-fill to check available space
-        const finalHead = path[path.length - 1]; // final head position is food cell
+        const finalHead = path[path.length - 1]; 
         const reachableArea = floodFill(board, finalSnakeBody, finalHead);
 
-        // Decide if this path is safe: 
-        // Check if reachableArea is large enough. Threshold can be snake length or slightly more.
+        // Check if there's enough space after eating
         if (reachableArea >= finalSnakeBody.length) {
-          candidateFoods.push({
-            food,
-            path,
-            distance: path.length,
-            reachableArea
-          });
+          // Before adding as a candidate, check if other snakes can also reach this food as fast or faster
+          const myDistance = path.length; // steps to reach the food
+          if (!otherSnakesReachFoodFirst(gameData, food, myDistance, mySnake.length)) {
+            candidateFoods.push({
+              food,
+              path,
+              distance: myDistance,
+              reachableArea
+            });
+          }
         }
       }
     }
@@ -86,7 +87,7 @@ function handleMove(request, response) {
 
   // Choose the best candidate:
   // Primary: shortest path distance
-  // Secondary (tiebreak): largest reachable area after eating
+  // Secondary: largest reachable area after eating
   candidateFoods.sort((a, b) => {
     if (a.distance === b.distance) {
       return b.reachableArea - a.reachableArea;
@@ -97,15 +98,12 @@ function handleMove(request, response) {
   const bestCandidate = candidateFoods[0];
 
   // Execute the first step of the chosen path
-  // The path includes the head cell as the first cell. We want the direction from myHead to path[1].
   if (bestCandidate.path.length > 1) {
-    // path[0] should be myHead, path[1] next cell
     const nextCell = bestCandidate.path[1];
     const move = directionFromTo(myHead, nextCell);
     console.log('MOVE:', move, 'towards food:', bestCandidate.food);
     response.status(200).send({ move: move });
   } else {
-    // If path length is 1, food is at our head (unlikely), fallback
     let safeMove = fallbackSafeMove(board, mySnake, myHead, possibleMoves);
     response.status(200).send({ move: safeMove });
   }
@@ -117,14 +115,36 @@ function handleEnd(request, response) {
 }
 
 //=====================
-// UTILITY & HELPER FUNCTIONS
+// NEW LOGIC: Check if other snakes reach the food first
+//=====================
+function otherSnakesReachFoodFirst(gameData, targetFood, myDistance, myLength) {
+  const board = gameData.board;
+  const mySnakeId = gameData.you.id;
+
+  for (const snake of board.snakes) {
+    if (snake.id === mySnakeId) continue; // skip my snake
+
+    // Run BFS for this other snake to find distance to the same food
+    const {dist, found} = bfsDistanceToTarget(board, snake, snake.head, targetFood);
+    if (found) {
+      // If other snake distance <= myDistance and they are of equal or greater length, risky
+      // Even if they are smaller, you might want to avoid the tie to prevent head collision.
+      // Adjust logic as desired.
+      if (dist <= myDistance) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+//=====================
+// BFS and PATH FUNCTIONS
 //=====================
 
 /**
- * BFS to find shortest paths to all foods
- * Returns distances and parents dictionary
- * distances: { "x,y": dist }
- * parents: { "x,y": "px,py" }
+ * BFS to find shortest paths to all foods from my snake's head
  */
 function bfsFindFoods(board, mySnake, start) {
   const queue = [];
@@ -141,7 +161,6 @@ function bfsFindFoods(board, mySnake, start) {
     const current = queue.shift();
     const currentKey = `${current.x},${current.y}`;
 
-    // If current cell is a food cell, record distance
     if (isFoodCell(board, current)) {
       distances[currentKey] = pathLengthFromParents(start, current, parents);
     }
@@ -157,6 +176,44 @@ function bfsFindFoods(board, mySnake, start) {
   }
 
   return { distances, parents };
+}
+
+/**
+ * A BFS to find distance from a given snake head to a target cell directly
+ */
+function bfsDistanceToTarget(board, snake, start, target) {
+  const queue = [];
+  const visited = {};
+  const startKey = `${start.x},${start.y}`;
+  visited[startKey] = true;
+  queue.push({x: start.x, y: start.y, dist: 0});
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (coordEqual(current, target)) {
+      return { dist: current.dist, found: true };
+    }
+    for (const neighbor of getAdjacentCoords(current)) {
+      const nKey = `${neighbor.x},${neighbor.y}`;
+      if (!visited[nKey] && isSafeToPassForOther(board, snake, neighbor)) {
+        visited[nKey] = true;
+        queue.push({x: neighbor.x, y: neighbor.y, dist: current.dist + 1});
+      }
+    }
+  }
+
+  return { dist: Infinity, found: false };
+}
+
+function isSafeToPassForOther(board, snake, coord) {
+  if (offBoard(board, coord)) return false;
+  // Avoid any snake body
+  for (const s of board.snakes) {
+    for (const segment of s.body) {
+      if (coordEqual(coord, segment)) return false;
+    }
+  }
+  return true;
 }
 
 /**
@@ -177,14 +234,13 @@ function pathLengthFromParents(start, end, parents) {
     const parentKey = parents[currentKey];
     currentKey = parentKey;
     length++;
-    if (currentKey === undefined) break; // Should not happen if path valid
+    if (currentKey === undefined) break;
   }
   return length;
 }
 
 /**
- * Reconstruct actual path from head to a target cell using parents
- * Path will be an array of coordinates, starting with head and ending with target
+ * Reconstruct path from start to end using parents
  */
 function reconstructPath(start, end, parents) {
   const path = [];
@@ -202,49 +258,25 @@ function reconstructPath(start, end, parents) {
   return path;
 }
 
-/**
- * Simulate the snake body after following a given path and eating the food at the end.
- * The path includes the starting head cell as the first cell in the array.
- *
- * Movement rules:
- * - For each intermediate step (not last), move head to next cell and remove tail cell (classic snake move)
- * - On the last step (the cell with the food), move head to the food cell and DO NOT remove tail (snake grows by 1)
- */
+//=====================
+// SNAKE SIMULATION AND FLOOD-FILL
+//=====================
+
 function simulateSnakeAfterPath(mySnake, path) {
-  // Clone original body
   let body = mySnake.body.map(segment => ({x: segment.x, y: segment.y}));
-
-  // path[0] is current head
-  // We assume path[0] is the head’s position at start (which it should be)
-  // For each step in path (excluding the first, since it's current head position):
-  //   Move head forward
-  //   Remove tail on intermediate steps
-  // On final step: do not remove tail (due to eating)
-  // Initial length
-  const originalLength = body.length;
-
+  // On each step except the last, move head + remove tail
+  // On last step (eating), move head without removing tail
   for (let i = 1; i < path.length; i++) {
     const nextCell = path[i];
-
-    // Add new head
     body.unshift({x: nextCell.x, y: nextCell.y});
-
     if (i < path.length - 1) {
-      // Intermediate step, remove tail
       body.pop();
-    } else {
-      // Final step (eating food), no tail removal = growth
-      // final length = originalLength + 1
     }
   }
-
+  // final length = originalLength + 1 after eating
   return body;
 }
 
-/**
- * Flood-fill to estimate how much open space is available from a given cell,
- * considering the snake’s final body position.
- */
 function floodFill(board, finalBody, start) {
   const stack = [start];
   const visited = {};
@@ -268,11 +300,19 @@ function floodFill(board, finalBody, start) {
   return count;
 }
 
-/**
- * Determine a fallback safe move if we cannot pursue food safely.
- */
+//=====================
+// MOVEMENT & SAFETY UTILS
+//=====================
+
+function directionFromTo(from, to) {
+  if (to.y > from.y) return 'up';
+  if (to.y < from.y) return 'down';
+  if (to.x > from.x) return 'right';
+  if (to.x < from.x) return 'left';
+  return 'up'; 
+}
+
 function fallbackSafeMove(board, mySnake, myHead, possibleMoves) {
-  // Try safe moves
   let safeMoves = [];
   for (const move of possibleMoves) {
     const nextCoord = moveAsCoord(move, myHead);
@@ -281,85 +321,27 @@ function fallbackSafeMove(board, mySnake, myHead, possibleMoves) {
     }
   }
   if (safeMoves.length > 0) {
-    // Choose any safe move
     return safeMoves[0];
   }
-  // No safe moves, move up as last resort
   return 'up';
 }
 
-/**
- * Determine direction from one cell to another
- */
-function directionFromTo(from, to) {
-  if (to.y > from.y) return 'up';
-  if (to.y < from.y) return 'down';
-  if (to.x > from.x) return 'right';
-  if (to.x < from.x) return 'left';
-  return 'up'; // fallback
-}
-
 //=====================
-// SAFETY & BOARD FUNCTIONS
+// SHARED LOGIC
 //=====================
 
 function offBoard(board, coord) {
   return coord.x < 0 || coord.y < 0 || coord.x >= board.width || coord.y >= board.height;
 }
 
-/**
- * Checks if a cell is safe to pass through (for BFS pathfinding).
- * This differs from isSafe() used previously for immediate moves.
- * Here we just ensure not hitting walls, snake bodies, or other obstacles.
- */
 function isSafeToPass(board, mySnake, coord) {
   if (offBoard(board, coord)) return false;
-  
   // Avoid any snake body
   for (const snake of board.snakes) {
     for (const segment of snake.body) {
       if (coordEqual(coord, segment)) return false;
     }
   }
-  return true;
-}
-
-/**
- * Given the current code, isSafe is used for immediate moves.
- * We keep it if needed for fallback logic.
- */
-function isSafe(board, mySnake, coord) {
-  // Avoid walls
-  if (offBoard(board, coord)) {
-    return false;
-  }
-
-  // Avoid self
-  if (snakeHitSelf(mySnake, coord)) {
-    return false;
-  }
-
-  // Avoid other snakes' bodies
-  for (const snake of board.snakes) {
-    for (const segment of snake.body) {
-      if (coordEqual(coord, segment)) return false;
-    }
-  }
-
-  // Avoid potential head-on collisions with larger snakes (optional complexity)
-  for (const snake of board.snakes) {
-    if (snake.id !== mySnake.id) {
-      const theirNextCoords = getAdjacentCoords(snake.head);
-      for (const nextCoord of theirNextCoords) {
-        if (coordEqual(coord, nextCoord)) {
-          if (snake.length >= mySnake.length) {
-            return false;
-          }
-        }
-      }
-    }
-  }
-
   return true;
 }
 
@@ -384,13 +366,3 @@ function getAdjacentCoords(coord) {
 function coordEqual(a, b) {
   return a.x === b.x && a.y === b.y;
 }
-
-function snakeHitSelf(mySnake, coord) {
-  for (const segment of mySnake.body) {
-    if (coordEqual(coord, segment)) {
-      return true;
-    }
-  }
-  return false;
-}
-
