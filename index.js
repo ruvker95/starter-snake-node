@@ -18,7 +18,7 @@ function handleIndex(request, response) {
     color: '#660033',
     head: 'workout',
     tail: 'sharp',
-    name: 'Edge Enforcer'
+    name: 'TheForce'
   };
   response.status(200).json(battlesnakeInfo);
 }
@@ -36,18 +36,19 @@ function handleMove(request, response) {
   const myHealth = mySnake.health;
   const myLength = mySnake.length;
   const snakes = board.snakes;
-
   const possibleMoves = ['up', 'down', 'left', 'right'];
   const foods = board.food;
 
+  // If no food on the board, fallback to safe move
   if (!foods || foods.length === 0) {
-    // No food available, fallback to a safe move
     let safeMove = fallbackSafeMove(board, mySnake, myHead, possibleMoves);
+    // Check if safeMove leads into a potential wall trap, try to avoid
+    safeMove = ensureNoWallTrap(board, mySnake, myHead, safeMove, possibleMoves);
     response.status(200).send({ move: safeMove });
     return;
   }
 
-  // Perform a BFS from myHead to find shortest paths to foods
+  // BFS from myHead to find shortest paths to foods
   const { distances, parents } = bfsFindFoods(board, mySnake, myHead);
 
   // Evaluate candidate foods
@@ -63,14 +64,13 @@ function handleMove(request, response) {
         const finalHead = path[path.length - 1];
         const reachableArea = floodFill(board, finalSnakeBody, finalHead);
 
-        // Initial safety check: enough space?
+        // Check if we have enough space after eating
         if (reachableArea < finalSnakeBody.length) {
-          // Not enough space, discard
+          // Not enough space, discard this candidate
           continue;
         }
 
-        // New logic: Check enemy snakes competition for the same food
-        // If another snake of same or larger size can reach at same or fewer steps, avoid
+        // Check enemy competition for the same food
         if (!isFoodWorthChasing(food, path.length, board, mySnake, snakes, myHealth)) {
           continue;
         }
@@ -86,13 +86,14 @@ function handleMove(request, response) {
   }
 
   if (candidateFoods.length === 0) {
-    // No suitable candidates after competition checks
+    // No suitable candidates, fallback to safe move
     let safeMove = fallbackSafeMove(board, mySnake, myHead, possibleMoves);
+    safeMove = ensureNoWallTrap(board, mySnake, myHead, safeMove, possibleMoves);
     response.status(200).send({ move: safeMove });
     return;
   }
 
-  // Sort candidates: shortest path first, then largest reachable area
+  // Sort candidates by shortest path, then largest reachable area
   candidateFoods.sort((a, b) => {
     if (a.distance === b.distance) {
       return b.reachableArea - a.reachableArea;
@@ -105,11 +106,16 @@ function handleMove(request, response) {
   if (bestCandidate.path.length > 1) {
     const nextCell = bestCandidate.path[1];
     const move = directionFromTo(myHead, nextCell);
-    console.log('MOVE:', move, 'towards food:', bestCandidate.food);
-    response.status(200).send({ move: move });
+
+    // New logic: ensure this move doesn't trap us against a wall
+    const finalMove = ensureNoWallTrap(board, mySnake, myHead, move, possibleMoves, myLength);
+
+    console.log('MOVE:', finalMove, 'towards food:', bestCandidate.food);
+    response.status(200).send({ move: finalMove });
   } else {
-    // Path of length 1 means we are already on the food? Just pick a safe fallback
+    // If the path is length 1, we are already on the food cell - just pick a safe fallback
     let safeMove = fallbackSafeMove(board, mySnake, myHead, possibleMoves);
+    safeMove = ensureNoWallTrap(board, mySnake, myHead, safeMove, possibleMoves);
     response.status(200).send({ move: safeMove });
   }
 }
@@ -119,69 +125,123 @@ function handleEnd(request, response) {
   response.status(200).send('ok');
 }
 
+//=====================
+// NEW LOGIC FUNCTIONS
+//=====================
+
 /**
- * Checks whether it's worth chasing a piece of food considering enemy snakes.
- *
- * Conditions:
- * - If another snake is equal or larger, and can reach the food in <= our distance,
- *   avoid that food (likely head-on collision scenario).
- * - If another snake is bigger and can tie or beat us to the food, avoid.
- * - If smaller snakes can tie, we may still attempt it if we need the food (low health) 
- *   or we’re bigger and can scare them off.
- *
- * For a more advanced "look ahead", one could simulate partial moves, but we rely on BFS distance.
+ * Ensure that the chosen move doesn't lead to a dead-end or dangerous corridor near a wall.
+ * We do this by:
+ * 1. Simulating the snake's next position (head + shift of body).
+ * 2. Checking if there's enough room ahead after moving.
+ * If not enough space is found, try an alternative safe move.
  */
+function ensureNoWallTrap(board, mySnake, myHead, chosenMove, possibleMoves, snakeLength = null) {
+  const nextCoord = moveAsCoord(chosenMove, myHead);
+  if (!isSafeToPass(board, mySnake, nextCoord)) {
+    // The chosen move is not even safe, fallback immediately
+    let altMove = fallbackSafeMove(board, mySnake, myHead, possibleMoves);
+    return altMove;
+  }
+
+  // Check space after making that move:
+  // Simulate snake after one step without growing (normal move)
+  // Snake body after move: add head at nextCoord, remove tail
+  let simulatedBody = mySnake.body.map(s => ({x: s.x, y: s.y}));
+  simulatedBody.unshift({x: nextCoord.x, y: nextCoord.y});
+  simulatedBody.pop(); // normal movement
+
+  // Run flood-fill from nextCoord to ensure there's enough open space
+  const spaceAvailable = floodFillForSafety(board, simulatedBody, nextCoord);
+  const neededSpace = snakeLength || mySnake.length;
+
+  if (spaceAvailable < neededSpace) {
+    // Not enough space to maneuver, try other moves
+    for (const move of possibleMoves) {
+      if (move === chosenMove) continue; // skip same move
+      const altCoord = moveAsCoord(move, myHead);
+      if (isSafeToPass(board, mySnake, altCoord)) {
+        // Simulate and check again
+        let altBody = mySnake.body.map(s => ({x: s.x, y: s.y}));
+        altBody.unshift(altCoord);
+        altBody.pop();
+        const altSpace = floodFillForSafety(board, altBody, altCoord);
+        if (altSpace >= neededSpace) {
+          return move;
+        }
+      }
+    }
+    // If no alternative is good, just return chosenMove as last resort
+    return chosenMove;
+  }
+
+  // If we have enough space, keep chosenMove
+  return chosenMove;
+}
+
+/**
+ * A special flood fill for safety that counts reachable cells not blocked by snake body or walls.
+ * Similar to floodFill but doesn’t rely on final growth. Just checks open space from a position.
+ */
+function floodFillForSafety(board, snakeBody, start) {
+  const stack = [start];
+  const visited = {};
+  const blocked = new Set(snakeBody.map(p => `${p.x},${p.y}`));
+  let count = 0;
+  
+  while (stack.length > 0 && count < 1000) {
+    const current = stack.pop();
+    const key = `${current.x},${current.y}`;
+    if (visited[key]) continue;
+    visited[key] = true;
+    count++;
+
+    for (const n of getAdjacentCoords(current)) {
+      if (!offBoard(board, n) && !blocked.has(`${n.x},${n.y}`) && !visited[`${n.x},${n.y}`]) {
+        stack.push(n);
+      }
+    }
+  }
+  return count;
+}
+
+//=====================
+// COMPETITION LOGIC
+//=====================
+
 function isFoodWorthChasing(targetFood, myDistance, board, mySnake, snakes, myHealth) {
   const myLength = mySnake.length;
-
-  // If we have decent health, we can be more picky
-  // If low health, we might risk going for contested food
-  const lowHealthThreshold = 30; // Example threshold
+  const lowHealthThreshold = 30;
   const desperate = (myHealth < lowHealthThreshold);
 
-  // Check other snakes
   for (const otherSnake of snakes) {
-    if (otherSnake.id === mySnake.id) continue; // skip self
+    if (otherSnake.id === mySnake.id) continue;
 
     const otherLength = otherSnake.length;
-
-    // Find shortest path for other snake to the same food
     const {distances: otherDistances} = bfsFromSnakeHead(board, otherSnake);
     const fKey = `${targetFood.x},${targetFood.y}`;
     const otherDist = otherDistances[fKey];
 
     if (otherDist !== undefined) {
-      // Another snake can reach the food
       if (otherDist < myDistance) {
-        // They can get there sooner
+        // They get there sooner
         if (otherLength >= myLength) {
-          // Bigger or equal snake beats us to the food => avoid
           return false;
         } else {
-          // They are smaller and get there sooner => risky
-          // If we are desperate for food, maybe we still go for it?
+          // Smaller but faster. If not desperate, avoid
           if (!desperate) return false;
         }
       } else if (otherDist === myDistance) {
-        // They can get there at the same time
+        // Arrive same time
         if (otherLength >= myLength) {
-          // Equal or bigger at same time => collision risk, avoid
-          return false;
+          // Equal or bigger: collision risk, avoid if not desperate
+          if (!desperate) return false;
         } else {
-          // Smaller snake arrives same time, we might attempt if we want to assert dominance
-          // If not desperate, we can still avoid to be safe
-          // But if we are bigger and confident, we can go for it
-          // For simplicity: if we are bigger than them, we go for it; if equal size and they tie, avoid.
-          if (otherLength === myLength) {
-            // Same size tie is risky => avoid if not desperate
-            if (!desperate) return false;
+          // Smaller and tie -> risky but maybe okay if we need food badly
+          if (otherLength === myLength && !desperate) {
+            return false;
           }
-          // If we are bigger, no problem, we proceed.
         }
-      } else {
-        // We get there sooner, no problem from this snake
-        // Unless it's bigger and can catch us later?
-        // If they are bigger but slower, less immediate risk. We'll proceed.
       }
     }
   }
@@ -189,15 +249,16 @@ function isFoodWorthChasing(targetFood, myDistance, board, mySnake, snakes, myHe
   return true;
 }
 
-/**
- * BFS to find shortest paths to all foods for the main snake
- */
+//=====================
+// BFS LOGIC
+//=====================
+
 function bfsFindFoods(board, mySnake, start) {
   const queue = [];
   const visited = {};
   const parents = {};
   const startKey = `${start.x},${start.y}`;
-  
+
   queue.push(start);
   visited[startKey] = true;
   const distances = {};
@@ -223,16 +284,13 @@ function bfsFindFoods(board, mySnake, start) {
   return { distances, parents };
 }
 
-/**
- * BFS for other snakes to see how quickly they can reach the target food.
- */
 function bfsFromSnakeHead(board, otherSnake) {
   const start = otherSnake.head;
   const queue = [];
   const visited = {};
   const parents = {};
   const startKey = `${start.x},${start.y}`;
-  
+
   queue.push(start);
   visited[startKey] = true;
   const distances = {};
@@ -258,9 +316,10 @@ function bfsFromSnakeHead(board, otherSnake) {
   return { distances, parents };
 }
 
-/**
- * Check if a cell is a food cell
- */
+//=====================
+// PATH & SIMULATION
+//=====================
+
 function isFoodCell(board, cell) {
   return board.food.some(f => f.x === cell.x && f.y === cell.y);
 }
@@ -269,6 +328,7 @@ function pathLengthFromParents(start, end, parents) {
   let length = 0;
   let currentKey = `${end.x},${end.y}`;
   const startKey = `${start.x},${start.y}`;
+
   while (currentKey !== startKey) {
     const parentKey = parents[currentKey];
     currentKey = parentKey;
@@ -294,27 +354,24 @@ function reconstructPath(start, end, parents) {
   return path;
 }
 
-/**
- * Simulate snake body after taking a given path and eating food at the end.
- */
 function simulateSnakeAfterPath(mySnake, path) {
   let body = mySnake.body.map(segment => ({x: segment.x, y: segment.y}));
   for (let i = 1; i < path.length; i++) {
-    // Move head
     body.unshift({x: path[i].x, y: path[i].y});
     if (i < path.length - 1) {
-      // Intermediate step, remove tail
+      // intermediate step remove tail
       body.pop();
-    } 
-    // On last step (eating), no tail removal => growth
+    }
+    // last step: no tail removal, snake grows
   }
   return body;
 }
 
+// Similar to before, but used after we know final body is safe
 function floodFill(board, finalBody, start) {
   const stack = [start];
   const visited = {};
-  const blockedCells = new Set(finalBody.map(s => `${s.x},${s.y}`));
+  const blocked = new Set(finalBody.map(s => `${s.x},${s.y}`));
   let count = 0;
 
   while (stack.length > 0 && count < 1000) {
@@ -325,7 +382,7 @@ function floodFill(board, finalBody, start) {
     count++;
 
     for (const neighbor of getAdjacentCoords(current)) {
-      if (!offBoard(board, neighbor) && !blockedCells.has(`${neighbor.x},${neighbor.y}`) && !visited[`${neighbor.x},${neighbor.y}`]) {
+      if (!offBoard(board, neighbor) && !blocked.has(`${neighbor.x},${neighbor.y}`) && !visited[`${neighbor.x},${neighbor.y}`]) {
         stack.push(neighbor);
       }
     }
@@ -333,6 +390,10 @@ function floodFill(board, finalBody, start) {
 
   return count;
 }
+
+//=====================
+// BASIC SAFETY & MOVE UTILS
+//=====================
 
 function fallbackSafeMove(board, mySnake, myHead, possibleMoves) {
   let safeMoves = [];
@@ -345,7 +406,6 @@ function fallbackSafeMove(board, mySnake, myHead, possibleMoves) {
   if (safeMoves.length > 0) {
     return safeMoves[0];
   }
-  // Last resort
   return 'up';
 }
 
@@ -395,8 +455,7 @@ function moveAsCoord(move, head) {
 }
 
 /**
- * If needed, a function to check snake hitting itself can remain,
- * but we rely on isSafeToPass for BFS and immediate safety checks.
+ * snakeHitSelf is not used directly here, but left for reference.
  */
 function snakeHitSelf(mySnake, coord) {
   for (const segment of mySnake.body) {
