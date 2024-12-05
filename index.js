@@ -36,14 +36,17 @@ function handleMove(request, response) {
   const myHealth = mySnake.health;
   const myLength = mySnake.length;
   const snakes = board.snakes;
-  const possibleMoves = ['up', 'down', 'left', 'right'];
   const foods = board.food;
+  const possibleMoves = ['up', 'down', 'left', 'right'];
 
   // If no food on the board, fallback to safe move
   if (!foods || foods.length === 0) {
     let safeMove = fallbackSafeMove(board, mySnake, myHead, possibleMoves);
-    // Check if safeMove leads into a potential wall trap, try to avoid
     safeMove = ensureNoWallTrap(board, mySnake, myHead, safeMove, possibleMoves);
+    // If length > 10, also run a 3-step look-ahead check
+    if (myLength > 10) {
+      safeMove = threeStepLookAhead(board, mySnake, myHead, safeMove, possibleMoves);
+    }
     response.status(200).send({ move: safeMove });
     return;
   }
@@ -85,39 +88,40 @@ function handleMove(request, response) {
     }
   }
 
+  let chosenMove;
   if (candidateFoods.length === 0) {
     // No suitable candidates, fallback to safe move
-    let safeMove = fallbackSafeMove(board, mySnake, myHead, possibleMoves);
-    safeMove = ensureNoWallTrap(board, mySnake, myHead, safeMove, possibleMoves);
-    response.status(200).send({ move: safeMove });
-    return;
-  }
-
-  // Sort candidates by shortest path, then largest reachable area
-  candidateFoods.sort((a, b) => {
-    if (a.distance === b.distance) {
-      return b.reachableArea - a.reachableArea;
-    }
-    return a.distance - b.distance;
-  });
-
-  const bestCandidate = candidateFoods[0];
-  // Execute the first step towards the chosen food
-  if (bestCandidate.path.length > 1) {
-    const nextCell = bestCandidate.path[1];
-    const move = directionFromTo(myHead, nextCell);
-
-    // New logic: ensure this move doesn't trap us against a wall
-    const finalMove = ensureNoWallTrap(board, mySnake, myHead, move, possibleMoves, myLength);
-
-    console.log('MOVE:', finalMove, 'towards food:', bestCandidate.food);
-    response.status(200).send({ move: finalMove });
+    chosenMove = fallbackSafeMove(board, mySnake, myHead, possibleMoves);
+    chosenMove = ensureNoWallTrap(board, mySnake, myHead, chosenMove, possibleMoves);
   } else {
-    // If the path is length 1, we are already on the food cell - just pick a safe fallback
-    let safeMove = fallbackSafeMove(board, mySnake, myHead, possibleMoves);
-    safeMove = ensureNoWallTrap(board, mySnake, myHead, safeMove, possibleMoves);
-    response.status(200).send({ move: safeMove });
+    // Sort candidates by shortest path, then largest reachable area
+    candidateFoods.sort((a, b) => {
+      if (a.distance === b.distance) {
+        return b.reachableArea - a.reachableArea;
+      }
+      return a.distance - b.distance;
+    });
+
+    const bestCandidate = candidateFoods[0];
+    // Execute the first step towards the chosen food
+    if (bestCandidate.path.length > 1) {
+      const nextCell = bestCandidate.path[1];
+      chosenMove = directionFromTo(myHead, nextCell);
+      chosenMove = ensureNoWallTrap(board, mySnake, myHead, chosenMove, possibleMoves);
+    } else {
+      // If the path is length 1, we are already on the food cell - just pick a safe fallback
+      chosenMove = fallbackSafeMove(board, mySnake, myHead, possibleMoves);
+      chosenMove = ensureNoWallTrap(board, mySnake, myHead, chosenMove, possibleMoves);
+    }
   }
+
+  // If snake is longer than 10, run the 3-step look ahead to avoid collisions
+  if (myLength > 10) {
+    chosenMove = threeStepLookAhead(board, mySnake, myHead, chosenMove, possibleMoves);
+  }
+
+  console.log('MOVE:', chosenMove);
+  response.status(200).send({ move: chosenMove });
 }
 
 function handleEnd(request, response) {
@@ -126,16 +130,133 @@ function handleEnd(request, response) {
 }
 
 //=====================
-// NEW LOGIC FUNCTIONS
+// NEW 3-STEP LOOK-AHEAD LOGIC
 //=====================
+/**
+ * Check 3 moves ahead to ensure no collisions occur with other snakes or walls.
+ * We'll simulate making the chosen move, then at each subsequent step pick a safe move.
+ * If at any point no safe moves are available, we consider the initial chosen move unsafe and pick an alternative.
+ */
+function threeStepLookAhead(board, mySnake, myHead, initialMove, possibleMoves) {
+  // Try the initial move with a 3-step look-ahead
+  let testMove = initialMove;
+
+  // If the initial move isn't safe, fallback immediately
+  const nextPos = moveAsCoord(testMove, myHead);
+  if (!isSafeToPass(board, mySnake, nextPos)) {
+    // Try alternative safe moves
+    for (const alt of possibleMoves) {
+      if (alt === testMove) continue;
+      const altPos = moveAsCoord(alt, myHead);
+      if (isSafeToPass(board, mySnake, altPos)) {
+        // Check look-ahead for this alternative move as well
+        if (lookAheadSimulation(board, mySnake, myHead, alt, possibleMoves, 3)) {
+          return alt;
+        }
+      }
+    }
+    // If no alternative found, return initial anyway as last resort
+    return testMove;
+  }
+
+  // If initial move is safe, check the look-ahead simulation
+  if (!lookAheadSimulation(board, mySnake, myHead, testMove, possibleMoves, 3)) {
+    // Initial move fails 3-step look-ahead, try alternatives
+    for (const alt of possibleMoves) {
+      if (alt === testMove) continue;
+      const altPos = moveAsCoord(alt, myHead);
+      if (isSafeToPass(board, mySnake, altPos)) {
+        if (lookAheadSimulation(board, mySnake, myHead, alt, possibleMoves, 3)) {
+          return alt;
+        }
+      }
+    }
+  }
+
+  return testMove;
+}
 
 /**
- * Ensure that the chosen move doesn't lead to a dead-end or dangerous corridor near a wall.
- * We do this by:
- * 1. Simulating the snake's next position (head + shift of body).
- * 2. Checking if there's enough room ahead after moving.
- * If not enough space is found, try an alternative safe move.
+ * Simulate up to N steps ahead from a given initial move.
+ * Each step:
+ *  - Move the snake forward in the chosen direction
+ *  - On subsequent steps, choose a safe direction to continue (preferring straight if possible)
+ * If at any point, no safe moves remain, return false.
+ * If all steps are feasible, return true.
  */
+function lookAheadSimulation(board, mySnake, myHead, initialMove, possibleMoves, steps) {
+  // Copy snake body
+  let simBody = mySnake.body.map(p => ({x: p.x, y: p.y}));
+  let currentHead = {x: myHead.x, y: myHead.y};
+
+  // Perform first move
+  currentHead = moveAsCoord(initialMove, currentHead);
+  simBody = simulateSingleMove(simBody, currentHead);
+
+  if (!isSafeToPassForBody(board, simBody)) return false;
+
+  // For the next steps (2 to steps), try to always pick a safe move if possible.
+  let currentDirection = initialMove;
+
+  for (let i = 2; i <= steps; i++) {
+    // Try continuing in the same direction first
+    let candidateMoves = [currentDirection, ...possibleMoves.filter(m => m !== currentDirection)];
+    let foundSafe = false;
+    for (const move of candidateMoves) {
+      const nextPos = moveAsCoord(move, currentHead);
+      let nextBody = simulateSingleMove(simBody, nextPos);
+      if (isSafeToPassForBody(board, nextBody)) {
+        // Accept this move
+        currentHead = nextPos;
+        simBody = nextBody;
+        currentDirection = move;
+        foundSafe = true;
+        break;
+      }
+    }
+    if (!foundSafe) return false;
+  }
+
+  return true;
+}
+
+/**
+ * Simulate a single move on the snake body (without growth)
+ * Add new head, remove tail.
+ */
+function simulateSingleMove(body, newHead) {
+  let newBody = [{x: newHead.x, y: newHead.y}, ...body.slice(0, body.length - 1)];
+  return newBody;
+}
+
+/**
+ * Check if the new body configuration is safe to pass - no collisions with walls or other snakes.
+ */
+function isSafeToPassForBody(board, body) {
+  // Check off-board
+  const head = body[0];
+  if (offBoard(board, head)) return false;
+
+  // Create a set of body segments (excluding head)
+  let segments = new Set(body.slice(1).map(p => `${p.x},${p.y}`));
+
+  // Check collision with itself or other snakes
+  for (const snake of board.snakes) {
+    for (const seg of snake.body) {
+      if (coordEqual(head, seg)) return false;
+    }
+  }
+
+  // Also check if head overlaps its own body somewhere else:
+  if (segments.has(`${head.x},${head.y}`)) return false;
+
+  return true;
+}
+
+//=====================
+// WALL & CORRIDOR CHECKS
+//=====================
+
 function ensureNoWallTrap(board, mySnake, myHead, chosenMove, possibleMoves, snakeLength = null) {
   const nextCoord = moveAsCoord(chosenMove, myHead);
   if (!isSafeToPass(board, mySnake, nextCoord)) {
@@ -144,24 +265,19 @@ function ensureNoWallTrap(board, mySnake, myHead, chosenMove, possibleMoves, sna
     return altMove;
   }
 
-  // Check space after making that move:
-  // Simulate snake after one step without growing (normal move)
-  // Snake body after move: add head at nextCoord, remove tail
+  // Check space after making that move
   let simulatedBody = mySnake.body.map(s => ({x: s.x, y: s.y}));
   simulatedBody.unshift({x: nextCoord.x, y: nextCoord.y});
   simulatedBody.pop(); // normal movement
-
-  // Run flood-fill from nextCoord to ensure there's enough open space
   const spaceAvailable = floodFillForSafety(board, simulatedBody, nextCoord);
   const neededSpace = snakeLength || mySnake.length;
 
   if (spaceAvailable < neededSpace) {
     // Not enough space to maneuver, try other moves
     for (const move of possibleMoves) {
-      if (move === chosenMove) continue; // skip same move
+      if (move === chosenMove) continue; 
       const altCoord = moveAsCoord(move, myHead);
       if (isSafeToPass(board, mySnake, altCoord)) {
-        // Simulate and check again
         let altBody = mySnake.body.map(s => ({x: s.x, y: s.y}));
         altBody.unshift(altCoord);
         altBody.pop();
@@ -175,14 +291,9 @@ function ensureNoWallTrap(board, mySnake, myHead, chosenMove, possibleMoves, sna
     return chosenMove;
   }
 
-  // If we have enough space, keep chosenMove
   return chosenMove;
 }
 
-/**
- * A special flood fill for safety that counts reachable cells not blocked by snake body or walls.
- * Similar to floodFill but doesn’t rely on final growth. Just checks open space from a position.
- */
 function floodFillForSafety(board, snakeBody, start) {
   const stack = [start];
   const visited = {};
@@ -228,16 +339,13 @@ function isFoodWorthChasing(targetFood, myDistance, board, mySnake, snakes, myHe
         if (otherLength >= myLength) {
           return false;
         } else {
-          // Smaller but faster. If not desperate, avoid
           if (!desperate) return false;
         }
       } else if (otherDist === myDistance) {
         // Arrive same time
         if (otherLength >= myLength) {
-          // Equal or bigger: collision risk, avoid if not desperate
           if (!desperate) return false;
         } else {
-          // Smaller and tie -> risky but maybe okay if we need food badly
           if (otherLength === myLength && !desperate) {
             return false;
           }
@@ -367,7 +475,6 @@ function simulateSnakeAfterPath(mySnake, path) {
   return body;
 }
 
-// Similar to before, but used after we know final body is safe
 function floodFill(board, finalBody, start) {
   const stack = [start];
   const visited = {};
@@ -423,7 +530,6 @@ function offBoard(board, coord) {
 
 function isSafeToPass(board, mySnake, coord) {
   if (offBoard(board, coord)) return false;
-  // Avoid all snake bodies
   for (const snake of board.snakes) {
     for (const segment of snake.body) {
       if (coordEqual(coord, segment)) return false;
@@ -455,7 +561,7 @@ function moveAsCoord(move, head) {
 }
 
 /**
- * snakeHitSelf is not used directly here, but left for reference.
+ * snakeHitSelf not directly used here, but left for reference.
  */
 function snakeHitSelf(mySnake, coord) {
   for (const segment of mySnake.body) {
