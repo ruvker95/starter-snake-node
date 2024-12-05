@@ -15,7 +15,7 @@ function handleIndex(request, response) {
   const battlesnakeInfo = {
     apiversion: '1',
     author: 'ruvimandaddision',
-    color: '#660033',   // Dark red/burgundy
+    color: '#660033', // Dark burgundy
     head: 'workout',
     tail: 'sharp',
     name: 'TheForce'
@@ -39,16 +39,17 @@ function handleMove(request, response) {
   const foods = board.food;
   const possibleMoves = ['up', 'down', 'left', 'right'];
 
-  // If no food, fallback to a safe move
+  // If no food available, fallback to a safe move
   if (!foods || foods.length === 0) {
     let safeMove = fallbackSafeMove(board, mySnake, myHead, possibleMoves);
     safeMove = ensureNoWallTrap(board, mySnake, myHead, safeMove, possibleMoves);
-    // If large, do 3-step look-ahead
+    // If longer snake, look 3 steps ahead
     if (myLength > 10) {
       safeMove = threeStepLookAhead(board, mySnake, myHead, safeMove, possibleMoves);
     }
     console.log('MOVE:', safeMove);
-    return response.status(200).send({ move: safeMove });
+    response.status(200).send({ move: safeMove });
+    return;
   }
 
   // BFS to find shortest paths to foods
@@ -64,14 +65,12 @@ function handleMove(request, response) {
         const finalSnakeBody = simulateSnakeAfterPath(mySnake, path);
         const finalHead = path[path.length - 1];
         const reachableArea = floodFill(board, finalSnakeBody, finalHead);
-
-        // Check space after eating
         if (reachableArea < finalSnakeBody.length) {
-          // Not enough space, discard
+          // Not enough space after eating, discard this option
           continue;
         }
 
-        // Check enemy competition
+        // Check if food is worth chasing considering enemies
         if (!isFoodWorthChasing(food, path.length, board, mySnake, snakes, myHealth)) {
           continue;
         }
@@ -87,12 +86,14 @@ function handleMove(request, response) {
   }
 
   let chosenMove;
+  const numSnakes = board.snakes.length;
+
   if (candidateFoods.length === 0) {
-    // No good food target, fallback
+    // No suitable food, fallback to safe move
     chosenMove = fallbackSafeMove(board, mySnake, myHead, possibleMoves);
     chosenMove = ensureNoWallTrap(board, mySnake, myHead, chosenMove, possibleMoves);
   } else {
-    // Sort candidates by shortest path, then largest reachable area
+    // Sort foods by shortest path, then largest reachable area
     candidateFoods.sort((a, b) => {
       if (a.distance === b.distance) {
         return b.reachableArea - a.reachableArea;
@@ -106,13 +107,21 @@ function handleMove(request, response) {
       chosenMove = directionFromTo(myHead, nextCell);
       chosenMove = ensureNoWallTrap(board, mySnake, myHead, chosenMove, possibleMoves);
     } else {
-      // Already on food cell, fallback to safe move
+      // On the food cell already, fallback to safe move
       chosenMove = fallbackSafeMove(board, mySnake, myHead, possibleMoves);
       chosenMove = ensureNoWallTrap(board, mySnake, myHead, chosenMove, possibleMoves);
     }
   }
 
-  // If long, do 3-step look-ahead to avoid trapping
+  // New aggressive logic if only 2 snakes remain
+  if (numSnakes === 2) {
+    const otherSnake = board.snakes.find(s => s.id !== mySnake.id);
+    if (otherSnake) {
+      chosenMove = aggressiveStrategy(board, mySnake, otherSnake, chosenMove, possibleMoves);
+    }
+  }
+
+  // If snake is large, run 3-step look-ahead
   if (myLength > 10) {
     chosenMove = threeStepLookAhead(board, mySnake, myHead, chosenMove, possibleMoves);
   }
@@ -127,12 +136,169 @@ function handleEnd(request, response) {
 }
 
 //=====================
+// AGGRESSIVE STRATEGY WHEN 2 SNAKES REMAIN
+//=====================
+function aggressiveStrategy(board, mySnake, otherSnake, currentMove, possibleMoves) {
+  // If we are bigger or equal and healthy, try a trapping strategy
+  const myLength = mySnake.length;
+  const otherLength = otherSnake.length;
+  const myHealth = mySnake.health;
+
+  // Conditions for aggression
+  if (myLength >= otherLength && myHealth > 30) {
+    // Try to position between other snake and nearest food
+    // Identify nearest food for the other snake
+    const theirClosestFood = findClosestFoodForSnake(board, otherSnake);
+    if (theirClosestFood) {
+      // Try intercepting path to that food
+      const interceptMove = attemptInterception(board, mySnake, otherSnake, theirClosestFood, possibleMoves);
+      if (interceptMove) {
+        return interceptMove;
+      }
+    }
+
+    // If no interception found, try to limit their space by picking a move that reduces their reachable area
+    const blockadeMove = attemptBlockade(board, mySnake, otherSnake, possibleMoves);
+    if (blockadeMove) {
+      return blockadeMove;
+    }
+  }
+
+  // If no aggressive move improves situation, return currentMove
+  return currentMove;
+}
+
+function findClosestFoodForSnake(board, snake) {
+  let minDist = Infinity;
+  let targetFood = null;
+  for (const food of board.food) {
+    const d = Math.abs(food.x - snake.head.x) + Math.abs(food.y - snake.head.y);
+    if (d < minDist) {
+      minDist = d;
+      targetFood = food;
+    }
+  }
+  return targetFood;
+}
+
+/**
+ * Attempt to intercept the other snake’s path to its closest food.
+ * We do a BFS from our snake to find a position along the shortest path from other snake to that food
+ * If we can occupy a strategic cell first or at the same time, do so.
+ */
+function attemptInterception(board, mySnake, otherSnake, food, possibleMoves) {
+  // Compute other snake’s shortest path to food
+  const {distances: otherDist, parents: otherParents} = bfsFromSnakeHead(board, otherSnake);
+  const key = `${food.x},${food.y}`;
+  if (otherDist[key] === undefined) return null;
+
+  const otherPath = reconstructPath(otherSnake.head, food, otherParents);
+  // Choose a point in otherPath that we can reach faster or equally and stand on to block them
+  // We try from nearest to the other snake’s head going forward
+  const {distances: myDist, parents: myParents} = bfsFindFoods(board, mySnake, mySnake.head);
+
+  let bestInterception = null;
+  let bestDistDiff = -Infinity;
+  for (const cell of otherPath) {
+    const ck = `${cell.x},${cell.y}`;
+    if (myDist[ck] !== undefined && otherDist[ck] !== undefined) {
+      // If we can get there sooner or at same time and we are bigger, we can hold that position
+      const myD = myDist[ck];
+      const theirD = otherDist[ck];
+      if (myD <= theirD) {
+        // Evaluate how strategic this interception is: prefer cells closer to food or mid path
+        // Just pick the earliest we can intercept
+        const diff = theirD - myD;
+        if (diff > bestDistDiff) {
+          bestDistDiff = diff;
+          bestInterception = cell;
+        }
+      }
+    }
+  }
+
+  if (bestInterception) {
+    const interceptPath = reconstructPath(mySnake.head, bestInterception, myParents);
+    if (interceptPath && interceptPath.length > 1) {
+      const nextCell = interceptPath[1];
+      let move = directionFromTo(mySnake.head, nextCell);
+      move = ensureNoWallTrap(board, mySnake, mySnake.head, move, possibleMoves);
+      return move;
+    }
+  }
+  return null;
+}
+
+/**
+ * Attempt a blockade move that reduces the other snake’s available space.
+ * Flood-fill from other snake’s head and see if making a certain move reduces their reachable area.
+ */
+function attemptBlockade(board, mySnake, otherSnake, possibleMoves) {
+  // Try each possible move and pick one that leads to a position reducing other snake’s accessible area
+  // after we move.
+  const myHead = mySnake.head;
+  let bestMove = null;
+  let bestAreaReduction = -Infinity;
+
+  const otherAreaBefore = floodFillOpenSpace(board, otherSnake.body, otherSnake.head);
+
+  for (const move of possibleMoves) {
+    const nextCoord = moveAsCoord(move, myHead);
+    if (isSafeToPass(board, mySnake, nextCoord)) {
+      // Simulate move
+      let newMyBody = simulateSingleMove(mySnake.body, nextCoord);
+      // Place our head there and see how the other snake’s area changes
+      // We add our new head position to blocked spaces
+      const combinedBlocked = newMyBody.map(p => `${p.x},${p.y}`);
+
+      const otherAreaAfter = floodFillOpenSpace(board, otherSnake.body, otherSnake.head, combinedBlocked);
+      const reduction = otherAreaBefore - otherAreaAfter;
+      if (reduction > bestAreaReduction) {
+        bestAreaReduction = reduction;
+        bestMove = move;
+      }
+    }
+  }
+
+  if (bestMove && bestAreaReduction > 0) {
+    return bestMove;
+  }
+  return null;
+}
+
+/**
+ * Flood-fill open space accessible to a snake’s head, given certain blocked cells.
+ */
+function floodFillOpenSpace(board, snakeBody, start, extraBlocked = []) {
+  const stack = [start];
+  const visited = {};
+  const blocked = new Set(snakeBody.map(p => `${p.x},${p.y}`));
+  for (const b of extraBlocked) {
+    blocked.add(b);
+  }
+
+  let count = 0;
+  while (stack.length > 0 && count < 2000) {
+    const current = stack.pop();
+    const key = `${current.x},${current.y}`;
+    if (visited[key]) continue;
+    visited[key] = true;
+    count++;
+    for (const n of getAdjacentCoords(current)) {
+      if (!offBoard(board, n) && !blocked.has(`${n.x},${n.y}`) && !visited[`${n.x},${n.y}`]) {
+        stack.push(n);
+      }
+    }
+  }
+  return count;
+}
+
+//=====================
 // 3-STEP LOOK-AHEAD LOGIC
 //=====================
 function threeStepLookAhead(board, mySnake, myHead, initialMove, possibleMoves) {
   const nextPos = moveAsCoord(initialMove, myHead);
   if (!isSafeToPass(board, mySnake, nextPos)) {
-    // Try alternatives if initial isn't safe
     for (const alt of possibleMoves) {
       if (alt === initialMove) continue;
       const altPos = moveAsCoord(alt, myHead);
@@ -144,7 +310,6 @@ function threeStepLookAhead(board, mySnake, myHead, initialMove, possibleMoves) 
   }
 
   if (!lookAheadSimulation(board, mySnake, myHead, initialMove, possibleMoves, 3)) {
-    // Initial fails look-ahead, try alternatives
     for (const alt of possibleMoves) {
       if (alt === initialMove) continue;
       const altPos = moveAsCoord(alt, myHead);
@@ -153,13 +318,10 @@ function threeStepLookAhead(board, mySnake, myHead, initialMove, possibleMoves) 
       }
     }
   }
+
   return initialMove;
 }
 
-/**
- * Simulate up to N steps ahead.
- * At each step, pick a safe move (prefer continuing straight).
- */
 function lookAheadSimulation(board, mySnake, myHead, initialMove, possibleMoves, steps) {
   let simBody = mySnake.body.map(p => ({x: p.x, y: p.y}));
   let currentHead = {x: myHead.x, y: myHead.y};
@@ -188,28 +350,18 @@ function lookAheadSimulation(board, mySnake, myHead, initialMove, possibleMoves,
   return true;
 }
 
-/**
- * Simulate a single step: add head, remove tail
- */
 function simulateSingleMove(body, newHead) {
   return [{x: newHead.x, y: newHead.y}, ...body.slice(0, body.length - 1)];
 }
 
-/**
- * Check if a body configuration is safe
- */
 function isSafeToPassForBody(board, body) {
   const head = body[0];
   if (offBoard(board, head)) return false;
-
-  // Check collisions with snakes
   for (const snake of board.snakes) {
     for (const seg of snake.body) {
       if (coordEqual(head, seg)) return false;
     }
   }
-
-  // Check self overlap
   let seen = new Set();
   for (let i = 1; i < body.length; i++) {
     let key = `${body[i].x},${body[i].y}`;
@@ -217,7 +369,6 @@ function isSafeToPassForBody(board, body) {
     if (seen.has(key)) return false;
     seen.add(key);
   }
-
   return true;
 }
 
@@ -270,14 +421,12 @@ function floodFillForSafety(board, snakeBody, start) {
     if (visited[key]) continue;
     visited[key] = true;
     count++;
-
     for (const n of getAdjacentCoords(current)) {
       if (!offBoard(board, n) && !blocked.has(`${n.x},${n.y}`) && !visited[`${n.x},${n.y}`]) {
         stack.push(n);
       }
     }
   }
-
   return count;
 }
 
@@ -292,7 +441,7 @@ function isFoodWorthChasing(targetFood, myDistance, board, mySnake, snakes, myHe
   for (const otherSnake of snakes) {
     if (otherSnake.id === mySnake.id) continue;
     const otherLength = otherSnake.length;
-    const { distances: otherDistances } = bfsFromSnakeHead(board, otherSnake);
+    const {distances: otherDistances} = bfsFromSnakeHead(board, otherSnake);
     const fKey = `${targetFood.x},${targetFood.y}`;
     const otherDist = otherDistances[fKey];
 
@@ -308,7 +457,6 @@ function isFoodWorthChasing(targetFood, myDistance, board, mySnake, snakes, myHe
       }
     }
   }
-
   return true;
 }
 
@@ -342,7 +490,6 @@ function bfsFindFoods(board, mySnake, start) {
       }
     }
   }
-
   return { distances, parents };
 }
 
@@ -360,7 +507,6 @@ function bfsFromSnakeHead(board, otherSnake) {
   while (queue.length > 0) {
     const current = queue.shift();
     const currentKey = `${current.x},${current.y}`;
-
     if (isFoodCell(board, current)) {
       distances[currentKey] = pathLengthFromParents(start, current, parents);
     }
@@ -438,7 +584,6 @@ function floodFill(board, finalBody, start) {
     if (visited[key]) continue;
     visited[key] = true;
     count++;
-
     for (const neighbor of getAdjacentCoords(current)) {
       if (!offBoard(board, neighbor) && !blocked.has(`${neighbor.x},${neighbor.y}`) && !visited[`${neighbor.x},${neighbor.y}`]) {
         stack.push(neighbor);
@@ -475,34 +620,20 @@ function offBoard(board, coord) {
   return coord.x < 0 || coord.y < 0 || coord.x >= board.width || coord.y >= board.height;
 }
 
-/**
- * isSafeToPass: Determine if a cell is safe to stand on at this turn.
- * Avoids walls, snake bodies.
- * Also attempts to avoid head-to-head collisions:
- * If another snake of equal or larger size can move into this cell next turn, consider unsafe.
- */
 function isSafeToPass(board, mySnake, coord) {
   if (offBoard(board, coord)) return false;
-
-  // Avoid any snake body
   for (const snake of board.snakes) {
     for (const segment of snake.body) {
       if (coordEqual(coord, segment)) return false;
     }
   }
 
-  // Head-on collision avoidance:
-  // Check if equal or larger snake can move into 'coord' next turn
+  // Avoid head-on collisions with equal/larger snakes:
   for (const snake of board.snakes) {
-    if (snake.id !== mySnake.id) {
-      if (snake.length >= mySnake.length) {
-        const theirMoves = possibleNextPositions(snake.head);
-        for (const m of theirMoves) {
-          if (coordEqual(m, coord)) {
-            // Potential head-on collision with equal/larger snake
-            return false;
-          }
-        }
+    if (snake.id !== mySnake.id && snake.length >= mySnake.length) {
+      const theirNext = possibleNextPositions(snake.head);
+      for (const n of theirNext) {
+        if (coordEqual(n, coord)) return false;
       }
     }
   }
@@ -532,3 +663,11 @@ function getAdjacentCoords(coord) {
   ];
 }
 
+function moveAsCoord(move, head) {
+  switch (move) {
+    case 'up': return { x: head.x, y: head.y + 1 };
+    case 'down': return { x: head.x, y: head.y - 1 };
+    case 'left': return { x: head.x - 1, y: head.y };
+    case 'right': return { x: head.x + 1, y: head.y };
+  }
+}
